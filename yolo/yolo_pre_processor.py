@@ -6,7 +6,6 @@ from keras import ops
 from kvmm.layers import Letterbox
 
 
-@keras.saving.register_keras_serializable(package="kvmm")
 class YoloPreProcessor(keras.layers.Layer):
     """
     Image preprocessor for YOLO models with letterbox resizing.
