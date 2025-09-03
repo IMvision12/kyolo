@@ -12,3 +12,4 @@ kvmm==0.1.8
 tqdm
 ultralytics
 numpy
+sentencepiece

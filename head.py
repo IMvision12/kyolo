@@ -3,7 +3,7 @@ import math
 import keras
 from keras import layers
 
-from .blocks import conv_block
+from blocks import conv_block
 
 
 def detect_head(

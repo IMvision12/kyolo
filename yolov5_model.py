@@ -1,43 +1,56 @@
 import keras
 from keras import layers, ops
 
-from yolo.blocks import c2f_block, conv_block, sppf_block
-from yolo.head import detect_head
-from yolo.utils import scale_channels, scale_depth
+from blocks import c3_block, conv_block, sppf_block
+from head import detect_head
+from utils import scale_channels, scale_depth
 
-from .config import YOLOV8_MODEL_CONFIG
-
+YOLOV5_MODEL_CONFIG = {
+    "YoloV5n": {
+        "depth_multiple": 0.33,
+        "width_multiple": 0.25,
+    },
+    "YoloV5s": {
+        "depth_multiple": 0.33,
+        "width_multiple": 0.50,
+    },
+    "YoloV5m": {
+        "depth_multiple": 0.67,
+        "width_multiple": 0.75,
+    },
+    "YoloV5l": {
+        "depth_multiple": 1.00,
+        "width_multiple": 1.00,
+    },
+    "YoloV5x": {
+        "depth_multiple": 1.33,
+        "width_multiple": 1.25,
+    },
+}
 
 def build_backbone_and_neck(images_input, width_multiple, depth_multiple, data_format):
     """
-    Build the backbone and neck architecture of YOLOv8.
+    Build the backbone and neck architecture of YOLOv5.
 
-    This function constructs the feature extraction backbone of YOLOv8, which represents
-    an evolution from YOLOv5 with improved architectural components. The backbone consists
-    of convolutional blocks and C2f blocks (Cross Stage Partial with 2 convolutions + more
-    shortcut connections) that progressively downsample the input while increasing channel
-    depth for hierarchical feature learning.
+    This function constructs the feature extraction backbone of YOLOv5, which consists of
+    a series of convolutional blocks and C3 blocks that progressively downsample the input
+    while increasing the number of channels. The backbone extracts multi-scale features
+    that are essential for object detection at different scales.
 
-    Key improvements in YOLOv8 architecture:
-    - C2f blocks replace C3 blocks for better gradient flow and feature reuse
-    - More balanced channel progression (512->512 instead of 512->1024 at the end)
-    - Enhanced spatial pyramid pooling with SPPF for multi-scale context
-    - Three feature maps (P3, P4, P5) extracted at different scales for the neck
-
-    The architecture follows this pattern:
-    - Initial conv blocks for feature extraction and progressive downsampling
-    - C2f blocks for efficient feature learning with enhanced skip connections
+    The architecture follows the YOLOv5 design:
+    - Initial conv blocks for feature extraction and downsampling
+    - C3 blocks for efficient feature learning with residual connections
     - SPPF block for spatial pyramid pooling to capture multi-scale context
-    - Feature extraction at 1/8, 1/16, and 1/32 scales for multi-scale detection
+    - Three feature maps (P3, P4, P5) are extracted at different scales for the neck
 
     Args:
         images_input (keras.KerasTensor): Input tensor containing batch of images with shape
             [batch_size, height, width, channels] for 'channels_last' format or
             [batch_size, channels, height, width] for 'channels_first' format.
         width_multiple (float): Scaling factor for channel width. Controls the number
-            of channels in each layer (e.g., 0.25 for YOLOv8n, 0.5 for YOLOv8s, 1.0 for YOLOv8m).
+            of channels in each layer (e.g., 0.5 for YOLOv5s, 1.0 for YOLOv5m).
         depth_multiple (float): Scaling factor for layer depth. Controls the number
-            of repeated blocks in C2f layers (e.g., 0.33 for YOLOv8n, 0.5 for YOLOv8s, 1.0 for YOLOv8m).
+            of repeated blocks in C3 layers (e.g., 0.33 for YOLOv5s, 1.0 for YOLOv5m).
         data_format (str): Data format specification, either 'channels_last' (NHWC)
             or 'channels_first' (NCHW). Determines the arrangement of tensor dimensions.
 
@@ -49,15 +62,15 @@ def build_backbone_and_neck(images_input, width_multiple, depth_multiple, data_f
             - p4_features: Feature map from P4 level (1/16 scale) with shape corresponding
               to 512 * width_multiple channels
             - p5_features: Feature map from P5 level (1/32 scale) with shape corresponding
-              to 512 * width_multiple channels
+              to 1024 * width_multiple channels
 
-            These feature maps are used by the neck network (FPN + PAN) for feature
-            fusion and final detection head processing.
+            These feature maps are used by the neck network for feature fusion and
+            final detection head processing.
     """
     inputs = conv_block(
         images_input,
         scale_channels(64, width_multiple),
-        kernel_size=3,
+        kernel_size=6,
         strides=2,
         data_format=data_format,
         name_prefix="conv_block_0",
@@ -72,13 +85,13 @@ def build_backbone_and_neck(images_input, width_multiple, depth_multiple, data_f
         name_prefix="conv_block_1",
     )
 
-    inputs = c2f_block(
+    inputs = c3_block(
         inputs,
         scale_channels(128, width_multiple),
         n=scale_depth(3, depth_multiple),
         shortcut=True,
         data_format=data_format,
-        name_prefix="c2f_block_2",
+        name_prefix="c3_block_2",
     )
 
     inputs = conv_block(
@@ -90,13 +103,13 @@ def build_backbone_and_neck(images_input, width_multiple, depth_multiple, data_f
         name_prefix="conv_block_3",
     )
 
-    inputs = c2f_block(
+    inputs = c3_block(
         inputs,
         scale_channels(256, width_multiple),
         n=scale_depth(6, depth_multiple),
         shortcut=True,
         data_format=data_format,
-        name_prefix="c2f_block_4",
+        name_prefix="c3_block_4",
     )
     p3_features = inputs
 
@@ -109,36 +122,37 @@ def build_backbone_and_neck(images_input, width_multiple, depth_multiple, data_f
         name_prefix="conv_block_5",
     )
 
-    inputs = c2f_block(
+    inputs = c3_block(
         inputs,
         scale_channels(512, width_multiple),
-        n=scale_depth(6, depth_multiple),
+        n=scale_depth(9, depth_multiple),
         shortcut=True,
         data_format=data_format,
-        name_prefix="c2f_block_6",
+        name_prefix="c3_block_6",
     )
     p4_features = inputs
+
     inputs = conv_block(
         inputs,
-        scale_channels(512, width_multiple),
+        scale_channels(1024, width_multiple),
         kernel_size=3,
         strides=2,
         data_format=data_format,
         name_prefix="conv_block_7",
     )
 
-    inputs = c2f_block(
+    inputs = c3_block(
         inputs,
-        scale_channels(512, width_multiple),
+        scale_channels(1024, width_multiple),
         n=scale_depth(3, depth_multiple),
         shortcut=True,
         data_format=data_format,
-        name_prefix="c2f_block_8",
+        name_prefix="c3_block_8",
     )
 
     inputs = sppf_block(
         inputs,
-        scale_channels(512, width_multiple),
+        scale_channels(1024, width_multiple),
         kernel_size=5,
         data_format=data_format,
         name_prefix="sppf_block_9",
@@ -152,26 +166,20 @@ def build_fpn(
     p3_features, p4_features, p5_features, width_multiple, depth_multiple, data_format
 ):
     """
-    Build Feature Pyramid Network (FPN) - Top-down pathway for YOLOv8.
+    Build Feature Pyramid Network (FPN) - Top-down pathway for YOLOv5.
 
     This function implements the top-down pathway of the Feature Pyramid Network,
-    which is a crucial component of the YOLOv8 neck architecture. The FPN enables
+    which is a crucial component of the YOLOv5 neck architecture. The FPN enables
     the model to detect objects at multiple scales by combining high-resolution,
     low-level features with low-resolution, high-level semantic features.
 
-    Key differences from YOLOv5 FPN:
-    - Uses C2f blocks instead of C3 blocks for better feature fusion
-    - Simplified architecture with direct upsampling and concatenation
-    - More efficient feature flow without intermediate channel reduction
-    - Enhanced gradient propagation through C2f block design
-
     The FPN process:
-    1. Upsamples P5 features by 2x using nearest neighbor interpolation
+    1. Reduces P5 features to 512 channels and upsamples by 2x
     2. Concatenates upsampled P5 with P4 features along channel dimension
-    3. Processes concatenated features through C2f block for feature refinement
-    4. Upsamples processed P4 features by 2x using nearest neighbor interpolation
+    3. Processes concatenated features through C3 block for feature refinement
+    4. Reduces processed P4 features to 256 channels and upsamples by 2x
     5. Concatenates upsampled P4 with P3 features along channel dimension
-    6. Processes final concatenated features through C2f block
+    6. Processes final concatenated features through C3 block
 
     This top-down information flow allows higher-level semantic information from
     deeper layers to enhance the feature representation at shallower layers,
@@ -183,11 +191,11 @@ def build_fpn(
         p4_features (keras.KerasTensor): Feature map from P4 level (1/16 scale) of the
             backbone network with shape corresponding to 512 * width_multiple channels.
         p5_features (keras.KerasTensor): Feature map from P5 level (1/32 scale) of the
-            backbone network with shape corresponding to 512 * width_multiple channels.
+            backbone network with shape corresponding to 1024 * width_multiple channels.
         width_multiple (float): Scaling factor for channel width. Controls the number
-            of channels in each layer (e.g., 0.25 for YOLOv8n, 0.5 for YOLOv8s, 1.0 for YOLOv8m).
+            of channels in each layer (e.g., 0.5 for YOLOv5s, 1.0 for YOLOv5m).
         depth_multiple (float): Scaling factor for layer depth. Controls the number
-            of repeated blocks in C2f layers (e.g., 0.33 for YOLOv8n, 0.5 for YOLOv8s, 1.0 for YOLOv8m).
+            of repeated blocks in C3 layers (e.g., 0.33 for YOLOv5s, 1.0 for YOLOv5m).
         data_format (str): Data format specification, either 'channels_last' (NHWC)
             or 'channels_first' (NCHW). Determines the arrangement of tensor dimensions
             and concatenation axis.
@@ -197,78 +205,91 @@ def build_fpn(
         three processed feature tensors:
             - p3_out: Enhanced P3 features after FPN processing with shape corresponding
               to 256 * width_multiple channels. Ready for detection head at 1/8 scale.
-            - p4_processed: Enhanced P4 features after FPN processing with shape corresponding
-              to 512 * width_multiple channels. Used as input for the bottom-up pathway (PAN).
-            - p5_features: Original P5 features (unchanged) with shape corresponding to
-
+            - p4_reduced: Intermediate P4 features reduced to 256 * width_multiple channels.
+              Used as input for the bottom-up pathway (PAN).
+            - p5_reduced: Intermediate P5 features reduced to 512 * width_multiple channels.
+              Used as input for the bottom-up pathway (PAN).
     """
     if data_format == "channels_last":
         concat_axis = -1
     else:
         concat_axis = 1
 
-    p5_upsampled = layers.UpSampling2D(
-        size=2, data_format=data_format, interpolation="nearest", name="upsample_10"
-    )(p5_features)
+    # Top-down pathway
+    p5_reduced = conv_block(
+        p5_features,
+        scale_channels(512, width_multiple),
+        kernel_size=1,
+        strides=1,
+        data_format=data_format,
+        name_prefix="conv_block_10",
+    )
 
-    p4_concat = layers.Concatenate(axis=concat_axis, name="concat_11")(
+    p5_upsampled = layers.UpSampling2D(
+        size=2, data_format=data_format, interpolation="nearest", name="upsample_1"
+    )(p5_reduced)
+
+    p4_concat = layers.Concatenate(axis=concat_axis, name="concat_1")(
         [p5_upsampled, p4_features]
     )
 
-    p4_processed = c2f_block(
+    p4_processed = c3_block(
         p4_concat,
         scale_channels(512, width_multiple),
         n=scale_depth(3, depth_multiple),
         shortcut=False,
         data_format=data_format,
-        name_prefix="c2f_block_12",
+        name_prefix="c3_block_13",
+    )
+
+    p4_reduced = conv_block(
+        p4_processed,
+        scale_channels(256, width_multiple),
+        kernel_size=1,
+        strides=1,
+        data_format=data_format,
+        name_prefix="conv_block_14",
     )
 
     p4_upsampled = layers.UpSampling2D(
-        size=2, data_format=data_format, interpolation="nearest", name="upsample_13"
-    )(p4_processed)
+        size=2, data_format=data_format, interpolation="nearest", name="upsample_2"
+    )(p4_reduced)
 
-    p3_concat = layers.Concatenate(axis=concat_axis, name="concat_14")(
+    p3_concat = layers.Concatenate(axis=concat_axis, name="concat_2")(
         [p4_upsampled, p3_features]
     )
 
-    p3_out = c2f_block(
+    p3_out = c3_block(
         p3_concat,
         scale_channels(256, width_multiple),
         n=scale_depth(3, depth_multiple),
         shortcut=False,
         data_format=data_format,
-        name_prefix="c2f_block_15",
+        name_prefix="c3_block_17",
     )
 
-    return p3_out, p4_processed, p5_features
+    return p3_out, p4_reduced, p5_reduced
 
 
 def build_pan(
-    p3_out, p4_processed, p5_features, width_multiple, depth_multiple, data_format
+    p3_out, p4_reduced, p5_reduced, width_multiple, depth_multiple, data_format
 ):
     """
-    Build Path Aggregation Network (PAN) - Bottom-up pathway for YOLOv8.
+    Build Path Aggregation Network (PAN) - Bottom-up pathway for YOLOv5.
 
     This function implements the bottom-up pathway of the Path Aggregation Network,
-    which is the second part of the YOLOv8 neck architecture after the FPN. The PAN
+    which is the second part of the YOLOv5 neck architecture after the FPN. The PAN
     enhances feature propagation by adding a bottom-up path that allows low-level
     features to be directly propagated to higher levels, improving localization
     accuracy for small objects.
 
-    Key differences from YOLOv5 PAN:
-    - Uses C2f blocks instead of C3 blocks for better gradient flow and feature reuse
-    - More balanced channel progression (512 channels for P5 instead of 1024)
-    - Enhanced feature fusion through improved architectural components
-    - Better preservation of fine-grained details from lower levels
-
     The PAN process:
-    1. Downsamples P3 features by 2x using stride-2 convolution (256 channels)
-    2. Concatenates downsampled P3 with processed P4 features from FPN
-    3. Processes concatenated features through C2f block for feature fusion (512 channels)
-    4. Downsamples processed P4 features by 2x using stride-2 convolution (512 channels)
-    5. Concatenates downsampled P4 with original P5 features from backbone
-    6. Processes final concatenated features through C2f block (512 channels)
+    1. Downsamples P3 features by 2x using stride-2 convolution
+    2. Concatenates downsampled P3 with reduced P4 features from FPN
+    3. Processes concatenated features through C3 block for feature fusion
+    4. Downsamples processed P4 features by 2x using stride-2 convolution
+    5. Concatenates downsampled P4 with reduced P5 features from FPN
+    6. Processes final concatenated features through C3 block
 
     This bottom-up information flow creates stronger feature pyramids by shortening
     the information path between lower and higher pyramid levels, which is especially
@@ -277,14 +298,14 @@ def build_pan(
     Args:
         p3_out (keras.KerasTensor): Enhanced P3 features from FPN top-down pathway
             with shape corresponding to 256 * width_multiple channels at 1/8 scale.
-        p4_processed (keras.KerasTensor): Enhanced P4 features from FPN top-down pathway
-            with shape corresponding to 512 * width_multiple channels at 1/16 scale.
-        p5_features (keras.KerasTensor): Original P5 features from backbone network
-            with shape corresponding to 512 * width_multiple channels at 1/32 scale.
+        p4_reduced (keras.KerasTensor): Intermediate P4 features from FPN, reduced to
+            256 * width_multiple channels at 1/16 scale.
+        p5_reduced (keras.KerasTensor): Intermediate P5 features from FPN, reduced to
+            512 * width_multiple channels at 1/32 scale.
         width_multiple (float): Scaling factor for channel width. Controls the number
-            of channels in each layer (e.g., 0.25 for YOLOv8n, 0.5 for YOLOv8s, 1.0 for YOLOv8m).
+            of channels in each layer (e.g., 0.5 for YOLOv5s, 1.0 for YOLOv5m).
         depth_multiple (float): Scaling factor for layer depth. Controls the number
-            of repeated blocks in C2f layers (e.g., 0.33 for YOLOv8n, 0.5 for YOLOv8s, 1.0 for YOLOv8m).
+            of repeated blocks in C3 layers (e.g., 0.33 for YOLOv5s, 1.0 for YOLOv5m).
         data_format (str): Data format specification, either 'channels_last' (NHWC)
             or 'channels_first' (NCHW). Determines the arrangement of tensor dimensions
             and concatenation axis.
@@ -296,7 +317,7 @@ def build_pan(
               channels at 1/8 scale. Used for detecting small objects.
             - p4_out: Enhanced P4 features after PAN processing with 512 * width_multiple
               channels at 1/16 scale. Used for detecting medium objects.
-            - p5_out: Enhanced P5 features after PAN processing with 512 * width_multiple
+            - p5_out: Enhanced P5 features after PAN processing with 1024 * width_multiple
               channels at 1/32 scale. Used for detecting large objects.
     """
     if data_format == "channels_last":
@@ -304,26 +325,27 @@ def build_pan(
     else:
         concat_axis = 1
 
+    # Bottom-up pathway
     p3_downsampled = conv_block(
         p3_out,
         scale_channels(256, width_multiple),
         kernel_size=3,
         strides=2,
         data_format=data_format,
-        name_prefix="conv_block_16",
+        name_prefix="conv_block_18",
     )
 
-    p4_final_concat = layers.Concatenate(axis=concat_axis, name="concat_17")(
-        [p3_downsampled, p4_processed]
+    p4_final_concat = layers.Concatenate(axis=concat_axis, name="concat_3")(
+        [p3_downsampled, p4_reduced]
     )
 
-    p4_out = c2f_block(
+    p4_out = c3_block(
         p4_final_concat,
         scale_channels(512, width_multiple),
         n=scale_depth(3, depth_multiple),
         shortcut=False,
         data_format=data_format,
-        name_prefix="c2f_block_18",
+        name_prefix="c3_block_20",
     )
 
     p4_downsampled = conv_block(
@@ -332,26 +354,26 @@ def build_pan(
         kernel_size=3,
         strides=2,
         data_format=data_format,
-        name_prefix="conv_block_19",
+        name_prefix="conv_block_21",
     )
 
-    p5_final_concat = layers.Concatenate(axis=concat_axis, name="concat_20")(
-        [p4_downsampled, p5_features]
+    p5_final_concat = layers.Concatenate(axis=concat_axis, name="concat_4")(
+        [p4_downsampled, p5_reduced]
     )
 
-    p5_out = c2f_block(
+    p5_out = c3_block(
         p5_final_concat,
-        scale_channels(512, width_multiple),
+        scale_channels(1024, width_multiple),
         n=scale_depth(3, depth_multiple),
         shortcut=False,
         data_format=data_format,
-        name_prefix="c2f_block_21",
+        name_prefix="c3_block_23",
     )
 
     return [p3_out, p4_out, p5_out]
 
 
-class YOLOv8(keras.Model):
+class YOLOv5(keras.Model):
     def __init__(
         self,
         input_shape=(None, None, 3),
@@ -361,8 +383,8 @@ class YOLOv8(keras.Model):
         depth_multiple=0.33,
         width_multiple=0.50,
         input_tensor=None,
-        training=True,
-        name="YOLOv8",
+        training=True,  # Add training flag
+        name="YOLOv5",
         **kwargs,
     ):
         if data_format not in ["channels_last", "channels_first"]:
@@ -389,7 +411,7 @@ class YOLOv8(keras.Model):
         else:
             image_input_shape = [image_size, image_size, channels]
 
-        # Define inputs
+        # Define 3 separate inputs
         if isinstance(input_tensor, dict):
             images_input = input_tensor.get("images") or layers.Input(
                 shape=image_input_shape, name="images"
@@ -409,6 +431,7 @@ class YOLOv8(keras.Model):
                 bbox_input = layers.Input(shape=[max_boxes, 4], name="bbox")
                 labels_input = layers.Input(shape=[max_boxes], name="labels")
 
+        # Set up inputs
         if training:
             inputs = {
                 "images": images_input,
@@ -418,11 +441,12 @@ class YOLOv8(keras.Model):
         else:
             inputs = images_input
 
+        # Build architecture using modular functions
         p3_features, p4_features, p5_features = build_backbone_and_neck(
             images_input, width_multiple, depth_multiple, data_format
         )
 
-        p3_out, p4_processed, p5_features = build_fpn(
+        p3_out, p4_reduced, p5_reduced = build_fpn(
             p3_features,
             p4_features,
             p5_features,
@@ -432,20 +456,16 @@ class YOLOv8(keras.Model):
         )
 
         feature_maps = build_pan(
-            p3_out,
-            p4_processed,
-            p5_features,
-            width_multiple,
-            depth_multiple,
-            data_format,
+            p3_out, p4_reduced, p5_reduced, width_multiple, depth_multiple, data_format
         )
 
+        # Detection head
         detection_outputs = detect_head(
             feature_maps,
             nc=nc,
             reg_max=16,
             data_format=data_format,
-            name_prefix="detect_head_22",
+            name_prefix="detect_head_24",
         )
 
         # Handle outputs based on training mode
@@ -466,6 +486,7 @@ class YOLOv8(keras.Model):
 
         super().__init__(inputs=inputs, outputs=outputs, name=name, **kwargs)
 
+        # Store configuration attributes
         self.nc = nc
         self.data_format = data_format
         self.depth_multiple = depth_multiple
@@ -491,16 +512,16 @@ class YOLOv8(keras.Model):
         return cls(**config)
 
 
-def YoloV8n(
+def YoloV5n(
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
     training=False,
-    name="YoloV8n",
+    name="YoloV5n",
     **kwargs,
 ):
-    model = YOLOv8(
-        **YOLOV8_MODEL_CONFIG["YoloV8n"],
+    model = YOLOv5(
+        **YOLOV5_MODEL_CONFIG["YoloV5n"],
         input_shape=input_shape,
         nc=nc,
         input_tensor=input_tensor,
@@ -512,16 +533,58 @@ def YoloV8n(
     return model
 
 
-def YoloV8s(
+def YoloV5s(
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
     training=False,
-    name="YoloV8s",
+    name="YoloV5s",
     **kwargs,
 ):
-    model = YOLOv8(
-        **YOLOV8_MODEL_CONFIG["YoloV8s"],
+    model = YOLOv5(
+        **YOLOV5_MODEL_CONFIG["YoloV5s"],
+        input_shape=input_shape,
+        nc=nc,
+        input_tensor=input_tensor,
+        training=training,
+        name=name,
+        **kwargs,
+    )
+
+    return model
+
+
+def YoloV5m(
+    input_tensor=None,
+    nc=80,
+    input_shape=(None, None, 3),
+    training=False,
+    name="YoloV5m",
+    **kwargs,
+):
+    model = YOLOv5(
+        **YOLOV5_MODEL_CONFIG["YoloV5m"],
+        input_shape=input_shape,
+        nc=nc,
+        input_tensor=input_tensor,
+        training=training,
+        name=name,
+        **kwargs,
+    )
+
+    return model
+
+
+def YoloV5l(
+    input_tensor=None,
+    nc=80,
+    input_shape=(None, None, 3),
+    training=False,
+    name="YoloV5l",
+    **kwargs,
+):
+    model = YOLOv5(
+        **YOLOV5_MODEL_CONFIG["YoloV5l"],
         input_shape=input_shape,
         nc=nc,
         input_tensor=input_tensor,
@@ -532,16 +595,16 @@ def YoloV8s(
     return model
 
 
-def YoloV8m(
+def YoloV5x(
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
     training=False,
-    name="YoloV8m",
+    name="YoloV5x",
     **kwargs,
 ):
-    model = YOLOv8(
-        **YOLOV8_MODEL_CONFIG["YoloV8m"],
+    model = YOLOv5(
+        **YOLOV5_MODEL_CONFIG["YoloV5x"],
         input_shape=input_shape,
         nc=nc,
         input_tensor=input_tensor,
@@ -549,44 +612,5 @@ def YoloV8m(
         name=name,
         **kwargs,
     )
-    return model
 
-
-def YoloV8l(
-    input_tensor=None,
-    nc=80,
-    input_shape=(None, None, 3),
-    training=False,
-    name="YoloV8l",
-    **kwargs,
-):
-    model = YOLOv8(
-        **YOLOV8_MODEL_CONFIG["YoloV8l"],
-        input_shape=input_shape,
-        nc=nc,
-        input_tensor=input_tensor,
-        training=training,
-        name=name,
-        **kwargs,
-    )
-    return model
-
-
-def YoloV8x(
-    input_tensor=None,
-    nc=80,
-    input_shape=(None, None, 3),
-    training=False,
-    name="YoloV8x",
-    **kwargs,
-):
-    model = YOLOv8(
-        **YOLOV8_MODEL_CONFIG["YoloV8x"],
-        input_shape=input_shape,
-        nc=nc,
-        input_tensor=input_tensor,
-        training=training,
-        name=name,
-        **kwargs,
-    )
     return model

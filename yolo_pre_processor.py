@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Union
 import keras
 from keras import ops
 
-from yolo.letterbox import Letterbox
+from letterbox import Letterbox
 
 
 class YoloPreProcessor(keras.layers.Layer):
