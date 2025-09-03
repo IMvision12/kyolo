@@ -1,100 +1,71 @@
-# YOLO Models (🚧 Under Construction 🚧)
+# YOLO-Keras
 
-## Overview
+This repository contains Keras implementations of YOLO models with weight conversion utilities from PyTorch.
 
-YOLO (You Only Look Once) is a family of real-time object detection models that revolutionized computer vision by treating object detection as a single regression problem. Unlike traditional two-stage detectors, YOLO models predict bounding boxes and class probabilities directly from full images in one evaluation, making them extremely fast and suitable for real-time applications.
+## Installation
 
-This implementation provides Keras/TensorFlow models for various YOLO architectures, enabling object detection, instance segmentation, and other computer vision tasks with state-of-the-art performance.
-
-## 🏗️ Available YOLO Versions
-
-- **YOLOv8** 
-- **YOLOv5**
-- More YOLO versions coming soon...
-
-## 🔧 Core Components
-
-### Preprocessing
-- **YoloPreProcessor** - Handles image preprocessing with letterbox resizing, normalization, and format conversion
-- Maintains aspect ratio while resizing to target dimensions
-- Uses standard YOLO padding color (114, 114, 114) for letterbox
-- Supports batch processing and file path inputs
-
-### Postprocessing  
-- **YoloPostProcessor** - Handles model output processing including bbox decoding, class predictions, and NMS
-- Converts raw model outputs to final detection results
-- Configurable confidence and IoU thresholds
-- Supports multiple detection heads and anchor-free architectures
-
-### Architecture Components
-- **Blocks** - Core building blocks (C3, Conv, SPPF, Bottleneck, c2f)
-- **Head** - Detection head for multi-scale feature processing
-- **Layers** - Specialized layers like DFL (Distribution Focal Loss)
-- **Utils** - Helper functions for bbox operations, anchor generation, and scaling
-
-## 🛠️ Basic Usage
-
-```python
-import keras
-import kvmm
-
-# Create preprocessor and model
-preprocessor = kvmm.models.yolo.YoloPreProcessor(image_size=640)
-model = kvmm.models.yolo.YoloV5s(weights="coco", training=False)
-
-# Process single image
-image_path = "path/to/image.jpg"
-processed = preprocessor(image_paths=image_path)
-detections = model(processed["images"])
-
-print("YOLOv5 detections shape:", detections.shape)
+1. Clone the repository:
+```bash
+git clone https://github.com/IMvision12/yolo-keras.git
+cd yolo-keras
 ```
 
-## Batch Processing Multiple Images
+2. Create and activate a virtual environment:
+```bash
+# On Windows
+python -m venv env
+.\env\Scripts\activate
 
-```python
-import keras
-import kvmm
-
-preprocessor = kvmm.models.yolo.YoloPreProcessor(image_size=640)
-model = kvmm.models.yolo.YoloV5s(weights="coco", training=False)
-
-# Process multiple images
-image_paths = ["image1.jpg", "image2.jpg", "image3.jpg"]
-processed = preprocessor(image_paths=image_paths)
-detections = model(processed["images"])
-
-print(f"Batch detections shape: {detections.shape}")
-print(f"Processed {len(image_paths)} images")
+# On Linux/Mac
+python -m venv env
+source env/bin/activate
 ```
 
-## Custom Preprocessing Configuration
-
-```python
-import kvmm
-
-# Custom preprocessor settings
-custom_preprocessor = kvmm.models.yolo.YoloPreProcessor(
-    image_size=1024,  # Higher resolution
-    letterbox_color=[128, 128, 128],  # Different padding color
-    do_normalize=True,  # Enable normalization
-    letterbox_auto=True,  # Auto-adjust padding for stride
-    letterbox_stride=32,  # Stride for padding adjustment
-)
-
-# Process with custom settings
-processed = custom_preprocessor(image_paths="high_res_image.jpg")
+3. Install the required packages:
+```bash
+pip install -r requirements.txt
+pip install sentencepiece
 ```
 
-## Training Mode
+## Converting YOLOv8 Weights
 
-🚧 **Training functionality is currently under construction** 🚧
+There are two ways to run the conversion script:
 
-Training support for YOLO models is being developed and will include:
-- Loss functions optimized for object detection
-- Training loops with proper data loading
-- Support for custom datasets
-- Transfer learning from pre-trained weights
-- Data augmentation integration
+### Method 1: Using Python Module Syntax (Recommended)
+```bash
+# Make sure you're in the yolo-keras directory
+python -m yolo.yolov8.convert
+```
 
-Stay tuned for updates!
+### Method 2: Using PYTHONPATH (Alternative)
+```bash
+# On Windows
+set PYTHONPATH=C:\path\to\yolo-keras
+python yolo/yolov8/convert.py
+
+# On Linux/Mac
+export PYTHONPATH=/path/to/yolo-keras
+python yolo/yolov8/convert.py
+```
+
+Replace `/path/to/yolo-keras` with the actual path to your yolo-keras directory.
+
+For example, if you cloned the repository to `C:\Users\username\yolo-keras`, you would use:
+```bash
+# On Windows
+set PYTHONPATH=C:\Users\username\yolo-keras
+python yolo/yolov8/convert.py
+```
+
+This will:
+1. Load the YOLOv8n model
+2. Convert the weights to Keras format
+3. Save the converted weights as `yolov8n.weights.h5`
+
+## Using the Converted Model
+
+After conversion, you can use the Keras model with the converted weights for inference or further training.
+
+## License
+
+See [LICENSE](LICENSE) for details.
