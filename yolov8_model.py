@@ -139,33 +139,47 @@ def build_backbone_and_neck(images_input, width_multiple, depth_multiple, data_f
         name_prefix="c2f_block_6",
     )
     p4_features = inputs
+    if width_multiple == 0.25:  # YOLOv8n
+        p5_base_channels = 1024
+    elif width_multiple == 0.50:  # YOLOv8s  
+        p5_base_channels = 1024
+    elif width_multiple == 0.75:  # YOLOv8m
+        p5_base_channels = 768   # This will give 576 channels
+    elif width_multiple == 1.00:  # YOLOv8l
+        p5_base_channels = 512
+    else:
+        p5_base_channels = 512
+
+    calculated_channels = scale_channels(p5_base_channels, width_multiple)
+    
     inputs = conv_block(
         inputs,
-        scale_channels(512, width_multiple),
+        calculated_channels,  # This gives correct channels for all variants
         kernel_size=3,
         strides=2,
         data_format=data_format,
         name_prefix="conv_block_7",
     )
 
+    # 8
     inputs = c2f_block(
         inputs,
-        scale_channels(512, width_multiple),
+        calculated_channels,  # Match conv_block_7 channels
         n=scale_depth(3, depth_multiple),
         shortcut=True,
         data_format=data_format,
         name_prefix="c2f_block_8",
     )
 
+    # 9 - SPPF
     inputs = sppf_block(
         inputs,
-        scale_channels(512, width_multiple),
+        calculated_channels,  # Keep same channels
         kernel_size=5,
         data_format=data_format,
         name_prefix="sppf_block_9",
     )
     p5_features = inputs
-
     return p3_features, p4_features, p5_features
 
 
@@ -320,6 +334,17 @@ def build_pan(
             - p5_out: Enhanced P5 features after PAN processing with 512 * width_multiple
               channels at 1/32 scale. Used for detecting large objects.
     """
+    if width_multiple == 0.25:  # YOLOv8n
+        p5_base_channels = 1024
+    elif width_multiple == 0.50:  # YOLOv8s  
+        p5_base_channels = 1024
+    elif width_multiple == 0.75:  # YOLOv8m
+        p5_base_channels = 768   # This will give 576 channels
+    elif width_multiple == 1.00:  # YOLOv8l
+        p5_base_channels = 512
+    else:
+        p5_base_channels = 512
+
     if data_format == "channels_last":
         concat_axis = -1
     else:
@@ -362,7 +387,7 @@ def build_pan(
 
     p5_out = c2f_block(
         p5_final_concat,
-        scale_channels(512, width_multiple),
+        scale_channels(p5_base_channels, width_multiple),
         n=scale_depth(3, depth_multiple),
         shortcut=False,
         data_format=data_format,
