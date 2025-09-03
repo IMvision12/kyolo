@@ -1,13 +1,11 @@
 import keras
 from keras import layers, ops
 
-from kvmm.model_registry import register_model
-from kvmm.models.yolo.blocks import c3_block, conv_block, sppf_block
-from kvmm.models.yolo.head import detect_head
-from kvmm.models.yolo.utils import scale_channels, scale_depth
-from kvmm.utils import get_all_weight_names, load_weights_from_config
+from yolo.blocks import c3_block, conv_block, sppf_block
+from yolo.head import detect_head
+from yolo.utils import scale_channels, scale_depth
 
-from .config import YOLOV5_MODEL_CONFIG, YOLOV5_WEIGHTS_CONFIG
+from .config import YOLOV5_MODEL_CONFIG
 
 
 def build_backbone_and_neck(images_input, width_multiple, depth_multiple, data_format):
@@ -494,9 +492,7 @@ class YOLOv5(keras.Model):
         return cls(**config)
 
 
-@register_model
 def YoloV5n(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -514,19 +510,10 @@ def YoloV5n(
         **kwargs,
     )
 
-    if weights in get_all_weight_names(YOLOV5_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5n", weights, model, YOLOV5_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
-
     return model
 
 
-@register_model
 def YoloV5s(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -544,19 +531,10 @@ def YoloV5s(
         **kwargs,
     )
 
-    if weights in get_all_weight_names(YOLOV5_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5s", weights, model, YOLOV5_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
-
     return model
 
 
-@register_model
 def YoloV5m(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -574,19 +552,10 @@ def YoloV5m(
         **kwargs,
     )
 
-    if weights in get_all_weight_names(YOLOV5_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5m", weights, model, YOLOV5_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
-
     return model
 
 
-@register_model
 def YoloV5l(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -603,20 +572,10 @@ def YoloV5l(
         name=name,
         **kwargs,
     )
-
-    if weights in get_all_weight_names(YOLOV5_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5l", weights, model, YOLOV5_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
-
     return model
 
 
-@register_model
 def YoloV5x(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -633,12 +592,5 @@ def YoloV5x(
         name=name,
         **kwargs,
     )
-
-    if weights in get_all_weight_names(YOLOV5_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5x", weights, model, YOLOV5_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
 
     return model

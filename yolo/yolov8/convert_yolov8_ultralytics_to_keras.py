@@ -4,7 +4,7 @@ import torch
 from tqdm import tqdm
 from ultralytics import YOLO
 
-from kvmm.models import yolo
+import yolo
 from kvmm.utils.custom_exception import WeightMappingError, WeightShapeMismatchError
 from kvmm.utils.weight_split_torch_and_keras import split_model_weights
 from kvmm.utils.weight_transfer_torch_to_keras import (

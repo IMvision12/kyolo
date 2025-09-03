@@ -1,13 +1,11 @@
 import keras
 from keras import layers, ops
 
-from kvmm.model_registry import register_model
-from kvmm.models.yolo.blocks import c2f_block, conv_block, sppf_block
-from kvmm.models.yolo.head import detect_head
-from kvmm.models.yolo.utils import scale_channels, scale_depth
-from kvmm.utils import get_all_weight_names, load_weights_from_config
+from yolo.blocks import c2f_block, conv_block, sppf_block
+from yolo.head import detect_head
+from yolo.utils import scale_channels, scale_depth
 
-from .config import YOLOV8_MODEL_CONFIG, YOLOV8_WEIGHTS_CONFIG
+from .config import YOLOV8_MODEL_CONFIG
 
 
 def build_backbone_and_neck(images_input, width_multiple, depth_multiple, data_format):
@@ -493,9 +491,7 @@ class YOLOv8(keras.Model):
         return cls(**config)
 
 
-@register_model
 def YoloV8n(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -512,18 +508,11 @@ def YoloV8n(
         name=name,
         **kwargs,
     )
-    if weights in get_all_weight_names(YOLOV8_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5n", weights, model, YOLOV8_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
+
     return model
 
 
-@register_model
 def YoloV8s(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -540,18 +529,10 @@ def YoloV8s(
         name=name,
         **kwargs,
     )
-    if weights in get_all_weight_names(YOLOV8_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5s", weights, model, YOLOV8_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
     return model
 
 
-@register_model
 def YoloV8m(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -568,18 +549,10 @@ def YoloV8m(
         name=name,
         **kwargs,
     )
-    if weights in get_all_weight_names(YOLOV8_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5m", weights, model, YOLOV8_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
     return model
 
 
-@register_model
 def YoloV8l(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -596,18 +569,10 @@ def YoloV8l(
         name=name,
         **kwargs,
     )
-    if weights in get_all_weight_names(YOLOV8_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5l", weights, model, YOLOV8_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
     return model
 
 
-@register_model
 def YoloV8x(
-    weights="coco",
     input_tensor=None,
     nc=80,
     input_shape=(None, None, 3),
@@ -624,10 +589,4 @@ def YoloV8x(
         name=name,
         **kwargs,
     )
-    if weights in get_all_weight_names(YOLOV8_WEIGHTS_CONFIG):
-        load_weights_from_config("YoloV5x", weights, model, YOLOV8_WEIGHTS_CONFIG)
-    elif weights is not None:
-        model.load_weights(weights)
-    else:
-        print("No weights loaded.")
     return model

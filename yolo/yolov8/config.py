@@ -20,31 +20,3 @@ YOLOV8_MODEL_CONFIG = {
         "width_multiple": 1.25,
     },
 }
-
-YOLOV8_WEIGHTS_CONFIG = {
-    "YoloV8n": {
-        "coco": {
-            "url": "",
-        },
-    },
-    "YoloV8s": {
-        "coco": {
-            "url": "",
-        },
-    },
-    "YoloV8m": {
-        "coco": {
-            "url": "",
-        },
-    },
-    "YoloV8l": {
-        "coco": {
-            "url": "",
-        },
-    },
-    "YoloV8x": {
-        "coco": {
-            "url": "",
-        },
-    },
-}

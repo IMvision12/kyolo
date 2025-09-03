@@ -1,9 +1,9 @@
 import keras
 from keras import ops
 
-from kvmm.layers import NonMaxSuppression
-from kvmm.models.yolo.layers import DFL
-from kvmm.models.yolo.utils import decode_bboxes, make_anchors
+from yolo.non_max_suppression import NonMaxSuppression
+from yolo.layers import DFL
+from yolo.utils import decode_bboxes, make_anchors
 
 
 class YoloPostProcessor(keras.layers.Layer):

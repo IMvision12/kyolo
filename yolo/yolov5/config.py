@@ -20,32 +20,3 @@ YOLOV5_MODEL_CONFIG = {
         "width_multiple": 1.25,
     },
 }
-
-
-YOLOV5_WEIGHTS_CONFIG = {
-    "YoloV5n": {
-        "coco": {
-            "url": "",
-        },
-    },
-    "YoloV5s": {
-        "coco": {
-            "url": "",
-        },
-    },
-    "YoloV5m": {
-        "coco": {
-            "url": "",
-        },
-    },
-    "YoloV5l": {
-        "coco": {
-            "url": "",
-        },
-    },
-    "YoloV5x": {
-        "coco": {
-            "url": "",
-        },
-    },
-}

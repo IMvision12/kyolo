@@ -9,3 +9,6 @@ jax[cpu]
 
 keras>=3.11.0
 kvmm==0.1.8
+tqdm
+ultralytics
+numpy
