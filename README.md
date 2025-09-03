@@ -24,48 +24,41 @@ source env/bin/activate
 3. Install the required packages:
 ```bash
 pip install -r requirements.txt
-pip install sentencepiece
 ```
 
-## Converting YOLOv8 Weights
+## Basic Usage
 
-There are two ways to run the conversion script:
+```python
+from convert_weight import transfer_torch_to_keras_weights
+from yolov8_model import YoloV8m
+from ultralytics import YOLO
+from yolo_post_processor import YoloPostProcessor
+from yolo_pre_processor import YoloPreProcessor
+from utils import visualize_yolo_detections
 
-### Method 1: Using Python Module Syntax (Recommended)
-```bash
-# Make sure you're in the yolo-keras directory
-python -m yolo.yolov8.convert
+import keras
+
+
+keras_model = YoloV8m(input_shape=(None, None, 3), nc=80)
+torch_model = YOLO("yolov8m.pt")
+transfer_torch_to_keras_weights(torch_model, keras_model, show_progress=True)
+keras_model.load_weights("yolov8m.weights.h5")
+
+pre_processor = YoloPreProcessor()
+image = keras.utils.load_img("bird.png")
+image_array = keras.utils.img_to_array(image)
+result = pre_processor(image_array)
+
+keras_raw_output = keras_model(result)
+
+post_processor = YoloPostProcessor()
+output = post_processor(keras_raw_output)
+
+visualize_yolo_detections(result["images"].numpy().squeeze()[:, :, ::-1], output)
 ```
-
-### Method 2: Using PYTHONPATH (Alternative)
-```bash
-# On Windows
-set PYTHONPATH=C:\path\to\yolo-keras
-python yolo/yolov8/convert.py
-
-# On Linux/Mac
-export PYTHONPATH=/path/to/yolo-keras
-python yolo/yolov8/convert.py
-```
-
-Replace `/path/to/yolo-keras` with the actual path to your yolo-keras directory.
-
-For example, if you cloned the repository to `C:\Users\username\yolo-keras`, you would use:
-```bash
-# On Windows
-set PYTHONPATH=C:\Users\username\yolo-keras
-python yolo/yolov8/convert.py
-```
-
-This will:
-1. Load the YOLOv8n model
-2. Convert the weights to Keras format
-3. Save the converted weights as `yolov8n.weights.h5`
-
-## Using the Converted Model
-
-After conversion, you can use the Keras model with the converted weights for inference or further training.
+<img src="images/results.png" width="500" height="500" alt="Object Detection Result">
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+- The code in this repository is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+- The official YOLO weights are licensed under the [AGPL-3.0 license](https://github.com/ultralytics/ultralytics/blob/main/LICENSE). Converting and using these weights makes your project subject to AGPL-3.0 license requirements.
