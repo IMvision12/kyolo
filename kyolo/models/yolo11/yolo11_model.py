@@ -1,4 +1,4 @@
-"""YOLO11 — C3k2 backbone with C2PSA attention + PAN-FPN, lightweight DFL head."""
+"""YOLO11 - C3k2 backbone with C2PSA attention + PAN-FPN, lightweight DFL head."""
 
 from __future__ import annotations
 

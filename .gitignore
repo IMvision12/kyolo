@@ -24,7 +24,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Model weights (never commit — AGPL-3.0 for the official checkpoints)
+# Model weights (never commit - AGPL-3.0 for the official checkpoints)
 *.pt
 *.pth
 *.weights.h5

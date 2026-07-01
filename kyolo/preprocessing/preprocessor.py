@@ -29,7 +29,7 @@ class YOLOPreprocessor(keras.layers.Layer):
         normalize: divide by 255 (auto-detected) and apply ``mean``/``std``.
         letterbox: aspect-preserving resize + pad; if ``False`` a plain resize.
         auto: minimal-rectangle padding to a multiple of ``stride`` (rarely used
-            for batched inference — keep ``False`` for a fixed square).
+            for batched inference - keep ``False`` for a fixed square).
         stride: stride for ``auto`` padding.
         pad_color: RGB pad colour (0-255).
         mean / std: optional per-channel normalization (in [0, 1] scale).

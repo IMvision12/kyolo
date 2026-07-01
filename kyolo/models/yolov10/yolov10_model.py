@@ -1,4 +1,4 @@
-"""YOLOv10 — C2f/C2fCIB backbone with SCDown + PSA, NMS-free (end-to-end) head.
+"""YOLOv10 - C2f/C2fCIB backbone with SCDown + PSA, NMS-free (end-to-end) head.
 
 Uses the shared DFL head; run inference through
 ``YOLOPostprocessor(..., end_to_end=True)`` to get the NMS-free top-k selection

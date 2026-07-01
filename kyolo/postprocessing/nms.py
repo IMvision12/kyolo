@@ -1,4 +1,4 @@
-"""Non-maximum suppression and NMS-free top-k selection — pure ``keras.ops``.
+"""Non-maximum suppression and NMS-free top-k selection - pure ``keras.ops``.
 
 The greedy NMS is unrolled for a fixed ``max_detections`` iterations and is
 fully vectorized across the batch, so it traces on TensorFlow, JAX and PyTorch

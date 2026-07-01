@@ -3,7 +3,7 @@
 Each pyramid level gets an independent regression branch (two 3x3 convs + a
 1x1 conv producing ``4 * reg_max`` distribution logits) and classification
 branch (two 3x3 convs + a 1x1 conv producing ``nc`` class logits). The two are
-concatenated so a level's output has ``4 * reg_max + nc`` channels — the format
+concatenated so a level's output has ``4 * reg_max + nc`` channels - the format
 consumed by :class:`kyolo.postprocessing.YOLOPostprocessor` and
 :class:`kyolo.losses.YOLODetectionLoss`.
 

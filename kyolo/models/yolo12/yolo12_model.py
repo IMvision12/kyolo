@@ -1,4 +1,4 @@
-"""YOLO12 — area-attention (A2C2f) backbone + PAN-FPN, lightweight DFL head.
+"""YOLO12 - area-attention (A2C2f) backbone + PAN-FPN, lightweight DFL head.
 
 The head/neck attention stages use :func:`kyolo.layers.a2c2f` (area attention).
 The neck aggregation stages, which in the reference alternate attention with

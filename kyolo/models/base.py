@@ -10,7 +10,7 @@ Model files here follow a common recipe:
 ``keras.Model`` whose output is the list of three raw feature maps
 ``[P3, P4, P5]`` (each ``B x H x W x (4*reg_max + nc)``). Keeping the model a
 standard functional graph means it is trainable, fine-tunable and serialisable
-with no special machinery — training targets/loss live in
+with no special machinery - training targets/loss live in
 :mod:`kyolo.losses` and post-processing in :mod:`kyolo.postprocessing`.
 """
 

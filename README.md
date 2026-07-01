@@ -1,4 +1,4 @@
-# kyolo — YOLO in pure Keras 3
+# kyolo - YOLO in pure Keras 3
 
 `kyolo` is a pure [Keras 3](https://keras.io) implementation of the YOLO
 object-detection family (YOLOv5, v6, v7, v8, v9, v10, YOLO11, YOLO12, YOLO26).
@@ -20,6 +20,17 @@ converting the official PyTorch checkpoints into Keras `.weights.h5` files.
 | YOLO11   | `n` `s` `m` `l` `x`          | Anchor-free, DFL (NMS)                 |
 | YOLO12   | `n` `s` `m` `l` `x`          | Anchor-free, DFL (NMS)                 |
 | YOLO26   | `n` `s` `m` `l` `x`          | Anchor-free, DFL, **end-to-end (NMS-free)** |
+
+Each variant is a **factory function** named `<family><variant>`, imported
+directly from `kyolo.models` (or `kyolo`):
+
+```python
+from kyolo.models import yolov5n, yolov8m, yolo11s, yolov9c, yolov7_tiny
+model = yolov8m(nc=80)          # -> keras.Model
+```
+
+`kyolo.models.MODEL_NAMES` lists all 43 factories. (YOLOv7 uses `yolov7`,
+`yolov7_tiny`, `yolov7_x`.)
 
 Regardless of family, a model's forward pass returns a **list of 3 raw feature
 maps** `[P3, P4, P5]`, each of shape `(B, Hi, Wi, 4 * reg_max + nc)` in
@@ -69,7 +80,8 @@ from kyolo.utils import visualize_detections, COCO_CLASS_NAMES
 
 # 1. Build a model (deploy=True fuses reparameterizable branches for inference).
 model = yolov8n(nc=80, input_shape=(640, 640, 3), deploy=True)
-# model.load_weights("yolov8n.weights.h5")  # a converted checkpoint (see below)
+# model = yolov8n(convert_weights=True)      # auto-download + convert official COCO weights
+# model = yolov8n(weights="yolov8n.weights.h5")  # or load a converted checkpoint (see below)
 
 # 2. Preprocess: letterbox to a square and (optionally) normalize to [0, 1].
 preprocessor = YOLOPreprocessor(image_size=640, normalize=True, letterbox=True)
@@ -113,8 +125,10 @@ from kyolo.training import YOLODetector
 nc = 80
 model = yolov8n(nc=nc)
 
-# Fine-tuning: load converted weights onto the bare model BEFORE wrapping it.
-# model.load_weights("yolov8n.weights.h5")   # AGPL-3.0 converted checkpoint
+# Fine-tuning: build with the pretrained COCO backbone, then swap the head for
+# your class count by fine-tuning. To start from converted weights, build the
+# nc=80 model with convert_weights=True (or weights="yolov8n.weights.h5").
+# model = yolov8n(convert_weights=True)
 
 # Freeze the backbone so only the neck + detection head train:
 for layer in model.layers:
@@ -137,8 +151,35 @@ A runnable synthetic-data version lives in [`examples/train.py`](examples/train.
 ## Weight conversion
 
 The official YOLO checkpoints are **AGPL-3.0 licensed** and are **not**
-redistributed with this project. To use pretrained weights you must convert an
-official `.pt` file yourself. Each model ships a co-located converter:
+redistributed with this project. kyolo does not ship weights; it downloads and
+converts them from source on demand.
+
+### From the factory (recommended)
+
+Every variant factory takes `convert_weights` and `weights` arguments:
+
+```python
+from kyolo.models import yolov8n
+
+# Auto-download the official COCO ".pt", convert it, cache and load it.
+# Needs the "conversion" extra (torch + ultralytics) and nc=80.
+model = yolov8n(convert_weights=True)
+
+# Load your own already-converted Keras weights.
+model = yolov8n(weights="yolov8n.weights.h5")
+
+# Convert a PyTorch checkpoint you supply (path or http URL) on load.
+model = yolov8n(nc=80, weights="yolov8n.pt")
+```
+
+`convert_weights=True` caches the converted `.weights.h5` under `~/.cache/kyolo`
+(override with `cache_dir=` or the `KYOLO_CACHE` env var), so subsequent calls
+load instantly. Auto-download covers the ultralytics families (v5, v8, v9, v10,
+11, 12, 26); for YOLOv6 / YOLOv7 fetch the `.pt` yourself and pass `weights=`.
+
+### From the command line
+
+Each model also ships a co-located converter, plus a unified CLI:
 
 ```bash
 # per-model converter (co-located under kyolo/models/<name>/)
@@ -150,55 +191,12 @@ kyolo-convert --model yolov8n --weights yolov8n.pt --output yolov8n.weights.h5
 ```
 
 Conversion requires the `conversion` extra (`pip install -e ".[conversion]"`,
-which pulls in `torch` and `ultralytics`). The programmatic entry point is
-`from kyolo.conversion import convert_weights`.
+which pulls in `torch` and `ultralytics`). The programmatic entry points are
+`from kyolo.conversion import convert_weights, load_pretrained`.
 
 > Conversion is **best-effort**: layer-name and tensor-layout mappings are
 > maintained by hand, so always validate a converted model's outputs against the
 > reference PyTorch implementation before trusting it.
-
-## Package layout
-
-The repo follows the [KerasFormers](https://github.com/IMvision12/KerasFormers)
-layout: a flat top-level package with one self-contained folder per model.
-
-```
-kyolo/                       # flat package (no src/)
-├── __init__.py
-├── version.py               # single source of truth for the version → releases
-├── models/
-│   ├── __init__.py          # per-variant factories (yolov8n, yolo11s, ...)
-│   ├── base.py              # shared assembly (image_input, finalize_detector)
-│   └── yolov8/              # one folder per model (v5, v6, v7, v8, v9, v10, 11, 12, 26)
-│       ├── __init__.py
-│       ├── config.py                          # scale variants
-│       ├── yolov8_model.py                     # architecture
-│       └── convert_yolov8_torch_to_keras.py    # co-located weight converter
-├── heads/                   # detection head
-├── layers/                  # conv/bn, CSP/ELAN/GELAN/attention blocks, DFL, letterbox
-├── ops/                     # anchors, box math, task-aligned assigner (pure keras.ops)
-├── losses/                  # YOLODetectionLoss
-├── preprocessing/           # YOLOPreprocessor
-├── postprocessing/          # YOLOPostprocessor + pure-ops NMS
-├── training/                # YOLODetector (keras.Model subclass)
-├── conversion/              # convert_weights, name mappings, exceptions, CLI
-└── utils/                   # COCO metadata + visualization
-
-.github/workflows/           # release.yml (auto-release) + test_code.yml (CI)
-docs/                        # one page per model
-tests/integration/           # build + processing smoke tests
-examples/                    # inference.py, train.py
-```
-
-## Releasing
-
-Releases are automated. Bump `__version__` in
-[`kyolo/version.py`](kyolo/version.py) and merge to `main`:
-[`.github/workflows/release.yml`](.github/workflows/release.yml) detects the
-change, creates the `v<version>` GitHub release, and publishes the wheel + sdist
-to PyPI (via Trusted Publishing — no API token). The package version is read
-dynamically from `kyolo.__version__`, so `version.py` is the single source of
-truth.
 
 ## License
 

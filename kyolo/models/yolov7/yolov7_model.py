@@ -1,4 +1,4 @@
-"""YOLOv7 — ELAN backbone + SPPCSPC + ELAN-PAN neck, DFL head.
+"""YOLOv7 - ELAN backbone + SPPCSPC + ELAN-PAN neck, DFL head.
 
 A faithful-in-spirit ELAN detector. YOLOv7's downsampling "MP" modules are
 approximated with stride-2 convolutions, and the original anchor-based lead/aux

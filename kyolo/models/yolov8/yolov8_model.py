@@ -1,4 +1,4 @@
-"""YOLOv8 — CSP (C2f) backbone + PAN-FPN neck, anchor-free DFL head."""
+"""YOLOv8 - CSP (C2f) backbone + PAN-FPN neck, anchor-free DFL head."""
 
 from __future__ import annotations
 

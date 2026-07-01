@@ -80,7 +80,7 @@ def decode_raw_predictions(feats, strides, reg_max, nc, dfl_layer, data_format="
         reg_max: DFL bin count.
         nc: number of classes.
         dfl_layer: a built :class:`kyolo.layers.dfl.DFL` (or ``None`` to skip the
-            integral and treat the first 4 channels as raw distances — used by
+            integral and treat the first 4 channels as raw distances - used by
             the DFL-free YOLO26 head).
         data_format: layout of ``feats``.
 

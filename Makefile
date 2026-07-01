@@ -5,7 +5,7 @@ PYTEST := python -m pytest
 .PHONY: help
 help:
 	@echo ""
-	@echo " kyolo — developer commands"
+	@echo " kyolo - developer commands"
 	@echo " ────────────────────────────────────────────────"
 	@echo " make install            Editable install with dev deps"
 	@echo " make lint               Ruff lint + format check"

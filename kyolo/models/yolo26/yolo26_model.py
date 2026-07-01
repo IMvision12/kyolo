@@ -1,4 +1,4 @@
-"""YOLO26 — end-to-end, NMS-free detector (2025).
+"""YOLO26 - end-to-end, NMS-free detector (2025).
 
 YOLO26's headline changes are architectural/training-side: it is natively
 end-to-end (NMS-free), drops the DFL module (the head regresses the four box

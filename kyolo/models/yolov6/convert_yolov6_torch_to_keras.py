@@ -1,7 +1,7 @@
 """Convert an official YOLOv6 PyTorch checkpoint into kyolo Keras 3 weights.
 
 The official YOLO weights are AGPL-3.0 licensed and are **not** redistributed
-by kyolo — download your own ``.pt`` and convert it here. A clean transfer is
+by kyolo - download your own ``.pt`` and convert it here. A clean transfer is
 necessary but not sufficient: validate the converted model's outputs against
 the reference before trusting them (see :mod:`kyolo.conversion`).
 

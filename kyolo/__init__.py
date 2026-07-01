@@ -1,4 +1,4 @@
-"""kyolo — the YOLO object-detection family in pure Keras 3.
+"""kyolo - the YOLO object-detection family in pure Keras 3.
 
 Backend-agnostic (TensorFlow / JAX / PyTorch) implementations of YOLOv5, v6,
 v7, v8, v9, v10, YOLO11, YOLO12 and YOLO26, with preprocessing, postprocessing,

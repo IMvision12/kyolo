@@ -1,4 +1,4 @@
-"""YOLOv9 — GELAN (RepNCSPELAN4 + ADown + SPPELAN) backbone/neck, DFL head.
+"""YOLOv9 - GELAN (RepNCSPELAN4 + ADown + SPPELAN) backbone/neck, DFL head.
 
 Implements the deploy-time GELAN topology (the reparameterized inference model,
 equivalent to ``gelan-c``). The auxiliary PGI branches used only during the

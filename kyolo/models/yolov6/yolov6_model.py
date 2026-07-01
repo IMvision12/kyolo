@@ -1,4 +1,4 @@
-"""YOLOv6 — EfficientRep backbone + Rep-PAN neck, anchor-free DFL head.
+"""YOLOv6 - EfficientRep backbone + Rep-PAN neck, anchor-free DFL head.
 
 Reparameterizable RepVGG blocks are built with the ``deploy`` flag: ``True``
 gives the fused single-conv inference graph, ``False`` the multi-branch training

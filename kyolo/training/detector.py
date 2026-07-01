@@ -1,4 +1,4 @@
-"""``YOLODetector`` — a trainable / fine-tunable wrapper around a raw model.
+"""``YOLODetector`` - a trainable / fine-tunable wrapper around a raw model.
 
 Wraps a feature-outputting kyolo model together with
 :class:`kyolo.losses.YOLODetectionLoss` and plugs into ``keras.Model.fit`` via

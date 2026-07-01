@@ -1,4 +1,4 @@
-"""YOLOv5 — CSP (C3) backbone + PAN-FPN neck.
+"""YOLOv5 - CSP (C3) backbone + PAN-FPN neck.
 
 The head here is the modern anchor-free DFL head (kyolo uses one head for the
 whole family), so these weights are architecture-compatible with the v5 *P5*

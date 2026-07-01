@@ -199,7 +199,7 @@ def rep_ncspelan4(
     data_format="channels_last",
     name="gelan",
 ):
-    """RepNCSPELAN4 — the core GELAN aggregation block of YOLOv9.
+    """RepNCSPELAN4 - the core GELAN aggregation block of YOLOv9.
 
     ``c3`` is the split width, ``c4`` the branch width. ``cv2`` and ``cv3`` are
     each ``RepNCSP -> Conv(3x3)`` sequences (named ``.0`` and ``.1``).
