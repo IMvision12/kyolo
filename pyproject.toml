@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kyolo"
+authors = [{ name = "Gitesh Chawda", email = "gitesh.ch.0912@gmail.com" }]
+description = "kyolo: the YOLO object-detection family (v5-v26) in pure Keras 3, with PyTorch weight conversion."
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = [
+    "keras",
+    "keras3",
+    "yolo",
+    "object-detection",
+    "computer-vision",
+    "deep-learning",
+    "jax",
+    "tensorflow",
+    "pytorch",
+    "neural-networks",
+    "pretrained-weights",
+    "transfer-learning",
+]
+license = { text = "Apache License 2.0" }
+classifiers = [
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dynamic = ["version"]
+dependencies = [
+    "keras>=3.5.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Backends (pick one) -------------------------------------------------------
+tensorflow = ["tensorflow>=2.16"]
+jax = ["jax>=0.4.28"]
+torch = ["torch>=2.2", "torchvision>=0.17"]
+
+# Weight conversion from the official (AGPL-3.0) PyTorch checkpoints --------
+conversion = ["torch>=2.2", "ultralytics>=8.2.0"]
+
+# Visualization / examples --------------------------------------------------
+viz = ["matplotlib>=3.7", "pillow>=10.0"]
+
+# Tests ---------------------------------------------------------------------
+tests = ["pytest", "pytest-cov"]
+
+[project.scripts]
+kyolo-convert = "kyolo.conversion.cli:main"
+
+[project.urls]
+homepage = "https://github.com/IMvision12/kyolo"
+documentation = "https://github.com/IMvision12/kyolo"
+repository = "https://github.com/IMvision12/kyolo.git"
+
+[tool.setuptools.packages]
+find = { include = ["kyolo*"] }
+
+[tool.setuptools.dynamic]
+# Point at the string literal in version.py so setuptools can read it
+# statically (via AST) during an isolated build without importing keras.
+version = { attr = "kyolo.version.__version__" }
+
+[tool.coverage.run]
+source = ["kyolo", "tests"]
+omit = ["kyolo/models/*/convert_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: slow tests excluded from default runs",
+    "gpu: tests that require a GPU (skipped on CI)",
+]

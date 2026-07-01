@@ -1,0 +1,14 @@
+keras>=3.5.0
+numpy
+jax[cpu]
+tensorflow-cpu>=2.16.0
+torch
+torchvision
+matplotlib>=3.7.0
+pillow
+ultralytics
+ruff
+pre-commit
+pytest
+pytest-cov
+build
