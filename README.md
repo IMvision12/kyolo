@@ -16,10 +16,10 @@ outputs.
 
 ![kyolo detections across the YOLO family](assets/model_comparison.png)
 
-<p align="center"><em>Seven kyolo models, each built from its official COCO
-checkpoint (auto-downloaded and converted) and run on a different image. Decoded
-with the one2many head + NMS. Reproduce with <code>convert_weights=True</code>
-(see <a href="#quickstart-inference">Quickstart</a>).</em></p>
+<p align="center"><em>Seven kyolo models, each loaded from its official COCO
+checkpoint (converted to Keras with the per-model converter) and run on a
+different image. Decoded with the one2many head + NMS. See
+<a href="#weight-conversion">Weight conversion</a>.</em></p>
 
 ## Highlights
 
@@ -68,11 +68,12 @@ strides `(8, 16, 32)`). Boxes are decoded from these by `YOLOPostprocessor`.
 
 ## Conversion fidelity
 
-Every model in the image above was built with `convert_weights=True`, which
-downloads the official COCO `.pt`, converts it, and loads it. The table reports,
-for each, the fraction of weights transferred and the **maximum absolute
-difference** between kyolo's raw head outputs and the official ultralytics head
-outputs on an identical input.
+Each model in the image above was built and loaded from an official COCO
+checkpoint that was converted with its per-model converter (see
+[Weight conversion](#weight-conversion)). The table reports, for each, the
+fraction of weights transferred and the **maximum absolute difference** between
+kyolo's raw head outputs and the official ultralytics head outputs on an
+identical input.
 
 | Model     | Image        | Objects | Weights transferred | Max abs diff vs official |
 | --------- | ------------ | :-----: | :-----------------: | :----------------------: |
@@ -126,10 +127,11 @@ from kyolo.preprocessing import YOLOPreprocessor
 from kyolo.postprocessing import YOLOPostprocessor
 from kyolo.utils import visualize_detections, COCO_CLASS_NAMES
 
-# 1. Build a model and load official COCO weights (auto-download + convert + cache).
-model = yolov8n(convert_weights=True)                 # needs the "conversion" extra
-# model = yolov8n(weights="yolov8n.weights.h5")       # or load a converted checkpoint
-# model = yolov8n(deploy=True)                         # or random init (architecture only)
+# 1. Build a model and load converted weights. kyolo does not download or convert
+#    the official (AGPL-3.0) weights for you; convert a .pt yourself first (see
+#    "Weight conversion" below), then load the resulting .weights.h5 file.
+model = yolov8n(weights="yolov8n.weights.h5")
+# model = yolov8n(deploy=True)                          # or random init (architecture only)
 
 # 2. Preprocess: letterbox to a square and normalize to [0, 1].
 preprocessor = YOLOPreprocessor(image_size=640, normalize=True, letterbox=True)
@@ -179,8 +181,8 @@ from kyolo.training import YOLODetector
 
 nc = 80
 model = yolov8n(nc=nc)
-# Start from the pretrained COCO weights to fine-tune:
-# model = yolov8n(nc=80, convert_weights=True)
+# To fine-tune from COCO, convert an official checkpoint yourself first (see
+# "Weight conversion"), then: model = yolov8n(nc=80, weights="yolov8n.weights.h5")
 
 # Optional: freeze the backbone (stages model.0 - model.9) and train only the
 # neck + head. Layer names mirror the module index, e.g. "model-6-cv1-conv".
@@ -206,48 +208,39 @@ A runnable synthetic-data version lives in [`examples/train.py`](examples/train.
 ## Weight conversion
 
 The official YOLO checkpoints are **AGPL-3.0 licensed** and are **not**
-redistributed with this project. kyolo does not ship weights; it downloads and
-converts them from source on demand.
+redistributed with this project. kyolo **does not download, cache, or auto-load
+them** for you - there is no `convert_weights=True` and no network fetch anywhere
+in the library. You obtain a `.pt` yourself and convert it **manually** with the
+per-model converter. The converted weights inherit AGPL-3.0.
 
-### From the factory (recommended)
-
-Every variant factory takes `convert_weights` and `weights` arguments:
-
-```python
-from kyolo.models import yolo11m
-
-# Auto-download the official COCO ".pt", convert it, cache and load it.
-# Needs the "conversion" extra (torch + ultralytics) and nc=80.
-model = yolo11m(convert_weights=True)
-
-# Load your own already-converted Keras weights.
-model = yolo11m(weights="yolo11m.weights.h5")
-
-# Convert a PyTorch checkpoint you supply (path or http URL) on load.
-model = yolo11m(nc=80, weights="yolo11m.pt")
-```
-
-`convert_weights=True` caches the converted `.weights.h5` under `~/.cache/kyolo`
-(override with `cache_dir=` or the `KYOLO_CACHE` env var), so subsequent calls
-load instantly. Auto-download covers all ultralytics families (v5, v8, v9, v10,
-11, 12, 26).
-
-### From the command line
-
-Each model also ships a co-located converter, plus a unified CLI:
+Conversion needs the `conversion` extra (`pip install -e ".[conversion]"`, which
+pulls in `torch` and `ultralytics`). Run the converter for the model you want:
 
 ```bash
-# per-model converter (co-located under kyolo/models/<name>/)
 python -m kyolo.models.yolov8.convert_yolov8_torch_to_keras \
     --weights yolov8n.pt --output yolov8n.weights.h5 --variant n
-
-# or the unified CLI (installed as `kyolo-convert`)
-kyolo-convert --model yolov8n --weights yolov8n.pt --output yolov8n.weights.h5
 ```
 
-Conversion requires the `conversion` extra (`pip install -e ".[conversion]"`,
-which pulls in `torch` and `ultralytics`). The programmatic entry points are
-`from kyolo.conversion import convert_weights, load_pretrained`.
+Every family ships the same converter at
+`kyolo/models/<family>/convert_<family>_torch_to_keras.py`, for example:
+
+```bash
+python -m kyolo.models.yolo11.convert_yolo11_torch_to_keras \
+    --weights yolo11m.pt --output yolo11m.weights.h5 --variant m
+
+python -m kyolo.models.yolo26.convert_yolo26_torch_to_keras \
+    --weights yolo26l.pt --output yolo26l.weights.h5 --variant l
+```
+
+Then load the result into the matching factory (Keras weights only):
+
+```python
+from kyolo.models import yolov8n
+model = yolov8n(nc=80, weights="yolov8n.weights.h5")   # .weights.h5 / .keras only
+```
+
+For scripting, the programmatic entry point is
+`from kyolo.conversion import convert_weights`.
 
 > Conversion is **best-effort**: layer-name and tensor-layout mappings are
 > maintained by hand, so always validate a converted model's outputs against the

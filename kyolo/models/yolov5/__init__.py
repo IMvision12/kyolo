@@ -12,8 +12,6 @@ def yolov5n(
     data_format=None,
     deploy=True,
     weights=None,
-    convert_weights=False,
-    cache_dir=None,
     **kwargs,
 ):
     """Build a YOLOv5-n detector.
@@ -27,14 +25,12 @@ def yolov5n(
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
-        weights: optional checkpoint to load after building. A ".weights.h5" or
-            ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
-            URL) is converted from PyTorch first.
-        convert_weights: if True, download the official "yolov5n" checkpoint,
-            convert it to Keras and load it. Needs the "conversion" extra
-            (torch + ultralytics) and nc=80 (the COCO checkpoint). Auto-download
-            covers the ultralytics-family models; for others pass weights=<path>.
-        cache_dir: where converted weights are cached (default ~/.cache/kyolo).
+        weights: optional path to a converted Keras checkpoint (".weights.h5"
+            or ".keras") to load after building. kyolo does not download or
+            convert the official (AGPL-3.0) weights for you: convert a ".pt"
+            you supply yourself with the per-model converter
+            (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
+            and pass the resulting ".weights.h5" here.
     """
     model = build_yolov5(
         "n",
@@ -44,17 +40,8 @@ def yolov5n(
         deploy=deploy,
         **kwargs,
     )
-    if convert_weights or weights is not None:
-        from ...conversion.pretrained import load_pretrained
-
-        load_pretrained(
-            model,
-            "yolov5n",
-            weights=weights,
-            convert_weights=convert_weights,
-            cache_dir=cache_dir,
-            nc=nc,
-        )
+    if weights is not None:
+        model.load_weights(weights)
     return model
 
 
@@ -64,8 +51,6 @@ def yolov5s(
     data_format=None,
     deploy=True,
     weights=None,
-    convert_weights=False,
-    cache_dir=None,
     **kwargs,
 ):
     """Build a YOLOv5-s detector.
@@ -79,14 +64,12 @@ def yolov5s(
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
-        weights: optional checkpoint to load after building. A ".weights.h5" or
-            ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
-            URL) is converted from PyTorch first.
-        convert_weights: if True, download the official "yolov5s" checkpoint,
-            convert it to Keras and load it. Needs the "conversion" extra
-            (torch + ultralytics) and nc=80 (the COCO checkpoint). Auto-download
-            covers the ultralytics-family models; for others pass weights=<path>.
-        cache_dir: where converted weights are cached (default ~/.cache/kyolo).
+        weights: optional path to a converted Keras checkpoint (".weights.h5"
+            or ".keras") to load after building. kyolo does not download or
+            convert the official (AGPL-3.0) weights for you: convert a ".pt"
+            you supply yourself with the per-model converter
+            (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
+            and pass the resulting ".weights.h5" here.
     """
     model = build_yolov5(
         "s",
@@ -96,17 +79,8 @@ def yolov5s(
         deploy=deploy,
         **kwargs,
     )
-    if convert_weights or weights is not None:
-        from ...conversion.pretrained import load_pretrained
-
-        load_pretrained(
-            model,
-            "yolov5s",
-            weights=weights,
-            convert_weights=convert_weights,
-            cache_dir=cache_dir,
-            nc=nc,
-        )
+    if weights is not None:
+        model.load_weights(weights)
     return model
 
 
@@ -116,8 +90,6 @@ def yolov5m(
     data_format=None,
     deploy=True,
     weights=None,
-    convert_weights=False,
-    cache_dir=None,
     **kwargs,
 ):
     """Build a YOLOv5-m detector.
@@ -131,14 +103,12 @@ def yolov5m(
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
-        weights: optional checkpoint to load after building. A ".weights.h5" or
-            ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
-            URL) is converted from PyTorch first.
-        convert_weights: if True, download the official "yolov5m" checkpoint,
-            convert it to Keras and load it. Needs the "conversion" extra
-            (torch + ultralytics) and nc=80 (the COCO checkpoint). Auto-download
-            covers the ultralytics-family models; for others pass weights=<path>.
-        cache_dir: where converted weights are cached (default ~/.cache/kyolo).
+        weights: optional path to a converted Keras checkpoint (".weights.h5"
+            or ".keras") to load after building. kyolo does not download or
+            convert the official (AGPL-3.0) weights for you: convert a ".pt"
+            you supply yourself with the per-model converter
+            (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
+            and pass the resulting ".weights.h5" here.
     """
     model = build_yolov5(
         "m",
@@ -148,17 +118,8 @@ def yolov5m(
         deploy=deploy,
         **kwargs,
     )
-    if convert_weights or weights is not None:
-        from ...conversion.pretrained import load_pretrained
-
-        load_pretrained(
-            model,
-            "yolov5m",
-            weights=weights,
-            convert_weights=convert_weights,
-            cache_dir=cache_dir,
-            nc=nc,
-        )
+    if weights is not None:
+        model.load_weights(weights)
     return model
 
 
@@ -168,8 +129,6 @@ def yolov5l(
     data_format=None,
     deploy=True,
     weights=None,
-    convert_weights=False,
-    cache_dir=None,
     **kwargs,
 ):
     """Build a YOLOv5-l detector.
@@ -183,14 +142,12 @@ def yolov5l(
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
-        weights: optional checkpoint to load after building. A ".weights.h5" or
-            ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
-            URL) is converted from PyTorch first.
-        convert_weights: if True, download the official "yolov5l" checkpoint,
-            convert it to Keras and load it. Needs the "conversion" extra
-            (torch + ultralytics) and nc=80 (the COCO checkpoint). Auto-download
-            covers the ultralytics-family models; for others pass weights=<path>.
-        cache_dir: where converted weights are cached (default ~/.cache/kyolo).
+        weights: optional path to a converted Keras checkpoint (".weights.h5"
+            or ".keras") to load after building. kyolo does not download or
+            convert the official (AGPL-3.0) weights for you: convert a ".pt"
+            you supply yourself with the per-model converter
+            (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
+            and pass the resulting ".weights.h5" here.
     """
     model = build_yolov5(
         "l",
@@ -200,17 +157,8 @@ def yolov5l(
         deploy=deploy,
         **kwargs,
     )
-    if convert_weights or weights is not None:
-        from ...conversion.pretrained import load_pretrained
-
-        load_pretrained(
-            model,
-            "yolov5l",
-            weights=weights,
-            convert_weights=convert_weights,
-            cache_dir=cache_dir,
-            nc=nc,
-        )
+    if weights is not None:
+        model.load_weights(weights)
     return model
 
 
@@ -220,8 +168,6 @@ def yolov5x(
     data_format=None,
     deploy=True,
     weights=None,
-    convert_weights=False,
-    cache_dir=None,
     **kwargs,
 ):
     """Build a YOLOv5-x detector.
@@ -235,14 +181,12 @@ def yolov5x(
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
-        weights: optional checkpoint to load after building. A ".weights.h5" or
-            ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
-            URL) is converted from PyTorch first.
-        convert_weights: if True, download the official "yolov5x" checkpoint,
-            convert it to Keras and load it. Needs the "conversion" extra
-            (torch + ultralytics) and nc=80 (the COCO checkpoint). Auto-download
-            covers the ultralytics-family models; for others pass weights=<path>.
-        cache_dir: where converted weights are cached (default ~/.cache/kyolo).
+        weights: optional path to a converted Keras checkpoint (".weights.h5"
+            or ".keras") to load after building. kyolo does not download or
+            convert the official (AGPL-3.0) weights for you: convert a ".pt"
+            you supply yourself with the per-model converter
+            (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
+            and pass the resulting ".weights.h5" here.
     """
     model = build_yolov5(
         "x",
@@ -252,17 +196,8 @@ def yolov5x(
         deploy=deploy,
         **kwargs,
     )
-    if convert_weights or weights is not None:
-        from ...conversion.pretrained import load_pretrained
-
-        load_pretrained(
-            model,
-            "yolov5x",
-            weights=weights,
-            convert_weights=convert_weights,
-            cache_dir=cache_dir,
-            nc=nc,
-        )
+    if weights is not None:
+        model.load_weights(weights)
     return model
 
 

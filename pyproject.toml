@@ -56,9 +56,6 @@ conversion = ["torch>=2.2", "ultralytics>=8.2.0"]
 # Tests ---------------------------------------------------------------------
 tests = ["pytest", "pytest-cov"]
 
-[project.scripts]
-kyolo-convert = "kyolo.conversion.cli:main"
-
 [project.urls]
 homepage = "https://github.com/IMvision12/kyolo"
 documentation = "https://github.com/IMvision12/kyolo"

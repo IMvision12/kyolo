@@ -1,11 +1,3 @@
-"""Letterbox resize layer (aspect-ratio preserving resize + padding).
-
-Ported from the original yolo-keras implementation and kept fully in
-``keras.ops``. Returns the padded image together with the scale ratio and the
-(dw, dh) padding so detections can be mapped back to original image
-coordinates.
-"""
-
 from __future__ import annotations
 
 import keras

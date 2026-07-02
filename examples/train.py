@@ -94,8 +94,8 @@ def build_detector(model_name, nc, weights=None, freeze_backbone=False):
 
     Fine-tuning notes:
       * Load converted weights onto the *bare* model BEFORE wrapping it in the
-        detector. The official weights are AGPL-3.0 -- convert them yourself
-        (see the README / ``kyolo-convert``); they are not shipped here.
+        detector. The official weights are AGPL-3.0 -- convert them yourself with
+        the per-model converter (see the README); they are not shipped here.
       * Freezing the backbone (``trainable = False``) trains only the neck and
         detection head, which is the usual recipe for small datasets.
     """

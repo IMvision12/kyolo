@@ -24,7 +24,7 @@ def convert(
     nc=80,
     imgsz=640,
     output=None,
-    method="order",
+    method="name",
     verbose=True,
 ):
     """Build a YOLOv10 model and transfer weights from ``weights_path``."""
@@ -41,7 +41,7 @@ def main():
     p.add_argument("--nc", type=int, default=80, help="Number of classes")
     p.add_argument("--imgsz", type=int, default=640, help="Build image size")
     p.add_argument("--output", default=None, help="Output .weights.h5 path")
-    p.add_argument("--method", default="order", choices=["order", "name"])
+    p.add_argument("--method", default="name", choices=["order", "name"])
     args = p.parse_args()
     convert(
         args.weights,

@@ -8,13 +8,14 @@ Because the official YOLO checkpoints are AGPL-3.0 licensed they are **not**
 shipped with this project. Running this demo without a converted checkpoint uses
 randomly initialized weights, so the detections will be meaningless -- it still
 exercises the whole pipeline and produces a rendered image. To get real
-predictions, convert an official checkpoint first (``kyolo-convert`` or the
-per-model ``kyolo/models/<name>/convert_*.py``) and pass it with ``--weights``.
+predictions, convert an official checkpoint yourself first with the per-model
+converter (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
+and pass the resulting ``.weights.h5`` with ``--weights``.
 
 Example
 -------
-    python examples/inference.py --model yolov8n \\
-        --weights yolov8n.weights.h5 --image assets/bird.png
+    python examples/inference.py --model yolov8l \\
+        --weights yolov8l.weights.h5 --image assets/samples/zidane.jpg
 
 A backend must be installed (``pip install kyolo[tensorflow]`` or jax / torch).
 """
@@ -29,7 +30,7 @@ import numpy as np
 # Repository root (this file lives in ``<repo>/examples``).
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_HERE)
-_DEFAULT_IMAGE = os.path.join(_REPO_ROOT, "assets", "bird.png")
+_DEFAULT_IMAGE = os.path.join(_REPO_ROOT, "assets", "samples", "bus.jpg")
 _DEFAULT_OUTPUT = os.path.join(_REPO_ROOT, "assets", "inference_result.png")
 
 
@@ -104,10 +105,10 @@ def main():
             "meaningless.\n"
             "    The official YOLO weights are AGPL-3.0 and are NOT shipped with "
             "kyolo.\n"
-            "    Convert an official checkpoint first, e.g.:\n"
-            "        kyolo-convert --model {m} --weights {m}.pt "
-            "--output {m}.weights.h5\n"
-            "    then re-run with --weights {m}.weights.h5\n".format(m=args.model)
+            "    Convert an official checkpoint yourself first with the per-model "
+            "converter\n"
+            "    (see the README's 'Weight conversion' section), then re-run with "
+            "--weights <file>.weights.h5\n"
         )
 
     # ------------------------------------------------------------ preprocess

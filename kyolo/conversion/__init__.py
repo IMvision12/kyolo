@@ -1,8 +1,12 @@
 """PyTorch -> Keras 3 weight conversion for :mod:`kyolo`.
 
 The official YOLO weights are AGPL-3.0 and are **not** redistributed by this
-project. These utilities let a user convert a ``.pt`` checkpoint they have
-obtained themselves into Keras ``.weights.h5`` format.
+project. kyolo does not download, cache, or auto-load them; it only provides the
+transfer engine so you can convert a ``.pt`` checkpoint you have obtained
+yourself into Keras ``.weights.h5`` format. Run the per-model converter, e.g.::
+
+    python -m kyolo.models.yolov8.convert_yolov8_torch_to_keras \
+        --weights yolov8n.pt --output yolov8n.weights.h5 --variant n
 
 Public API
 ----------
@@ -10,9 +14,6 @@ Public API
 * :func:`transfer_by_order` -- robust positional transfer (recommended).
 * :func:`transfer_torch_to_keras` -- best-effort name-based transfer.
 * :func:`convert_weights` -- high-level: load, transfer, save.
-* :func:`load_pretrained` -- download + convert + cache + load in one call
-  (this is what the model factories use for ``convert_weights=True``).
-* :func:`download_file` -- fetch and cache a remote URL.
 
 See :mod:`kyolo.conversion.convert` for details and the important caveat that a
 clean transfer must still be validated against the reference outputs.
@@ -32,20 +33,13 @@ from .exceptions import (
     WeightMappingError,
     WeightShapeMismatchError,
 )
-from .file_downloader import DEFAULT_CACHE, download_file, validate_url
 from .mappings import DEFAULT_MAPPING, NAME_MAPPINGS, get_mapping
-from .pretrained import default_cache_dir, load_pretrained
 
 __all__ = [
     "transfer_torch_to_keras",
     "transfer_by_order",
     "load_torch_state_dict",
     "convert_weights",
-    "load_pretrained",
-    "default_cache_dir",
-    "download_file",
-    "validate_url",
-    "DEFAULT_CACHE",
     "DEFAULT_MAPPING",
     "NAME_MAPPINGS",
     "get_mapping",

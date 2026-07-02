@@ -6,12 +6,11 @@ Import a ready-to-build variant directly and call it::
     model = yolov8n(nc=80)                       # -> keras.Model
     feats = model(images)                        # raw [P3, P4, P5] feature list
 
-Pass convert_weights=True to auto-download + convert + load the official COCO
-checkpoint, or weights=<path/url> to load your own::
+Pass weights=<path> to load an already-converted Keras checkpoint. kyolo does
+not download or convert the official (AGPL-3.0) weights for you; convert a ``.pt``
+you supply yourself with the per-model converter first (see the README)::
 
-    model = yolov8n(convert_weights=True)                 # official COCO weights
-    model = yolov8n(weights="yolov8n.weights.h5")         # converted Keras file
-    model = yolov8n(nc=80, weights="yolov8n.pt")          # convert a PyTorch file
+    model = yolov8n(weights="yolov8n.weights.h5")         # converted Keras file only
 
 Every factory returns a plain keras.Model. Feed the outputs to
 kyolo.postprocessing.YOLOPostprocessor for detections, or wrap the model in
