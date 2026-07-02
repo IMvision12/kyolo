@@ -1,16 +1,16 @@
 """Reparameterizable blocks (RepVGG-style) and the GELAN family.
 
-Used by YOLOv6 (EfficientRep / Rep-PAN, CSPStackRep) and YOLOv9 (GELAN:
-RepNCSPELAN4, ADown, SPPELAN).
+Used by YOLOv9: the GELAN blocks (``rep_ncspelan4``, ``elan1``, ``adown``,
+``aconv``, ``sppelan``) plus the ``e`` variant's dual-branch fusion
+(``cblinear`` / ``cbfuse``), all built on the RepVGG-style ``rep_conv``.
 
 Every reparameterizable block supports a ``deploy`` flag:
 
-* ``deploy=True``  -> a single fused ``Conv2D(bias) + act`` branch. This is the
-  form the *converted* / inference checkpoints ship in, and the one used for
-  fast inference.
-* ``deploy=False`` -> the multi-branch training graph (3x3 conv-bn + 1x1
-  conv-bn + optional identity bn), which is what you fine-tune with before
-  fusing.
+* ``deploy=False`` -> the multi-branch graph (3x3 conv-bn + 1x1 conv-bn, summed
+  then activated). This is the form the official checkpoints ship in, so it is
+  the default for weight conversion, and it is what you fine-tune before fusing.
+* ``deploy=True``  -> a single fused ``Conv2D(bias) + act`` branch. Mathematically
+  equivalent to the unfused graph and faster for inference.
 """
 
 from __future__ import annotations
@@ -22,14 +22,15 @@ from .knames import layers
 
 __all__ = [
     "rep_conv",
-    "rep_block",
     "rep_bottleneck",
     "rep_ncsp",
     "rep_ncspelan4",
+    "elan1",
     "adown",
+    "aconv",
     "sppelan",
-    "bottlerep",
-    "bepc3",
+    "cblinear",
+    "cbfuse",
 ]
 
 
@@ -46,12 +47,11 @@ def rep_conv(
 ):
     """RepVGG-style reparameterizable convolution.
 
-    Training graph = 3x3 branch + 1x1 branch (+ identity BN when shapes match),
-    summed then activated. Deploy graph = one fused 3x3 conv with bias.
+    Training graph = 3x3 branch + 1x1 branch, summed then activated. Deploy
+    graph = one fused 3x3 conv with bias. Mirrors the Ultralytics ``RepConv``,
+    which is instantiated with ``bn=False`` throughout YOLOv9/GELAN, so there is
+    no identity-BN branch (only the two conv-bn branches).
     """
-    c1 = channels_of(x, data_format)
-    axis = -1 if data_format == "channels_last" else 1
-
     if deploy:
         pad = autopad(kernel_size, None)
         if strides > 1:
@@ -93,47 +93,9 @@ def rep_conv(
         data_format=data_format,
         name=f"{name}.conv2",
     )
-    outs = [branch_3, branch_1]
-    if c1 == c2 and strides == 1:
-        idbn = layers.BatchNormalization(axis=axis, momentum=0.97, epsilon=1e-3, name=f"{name}.bn")(
-            x
-        )
-        outs.append(idbn)
-    y = layers.Add(name=f"{name}.add")(outs)
+    y = layers.Add(name=f"{name}.add")([branch_3, branch_1])
     a = act_layer(act, name=f"{name}.act")
     return a(y) if a is not None else y
-
-
-def rep_block(x, c2, n=1, deploy=False, data_format="channels_last", name="repblock"):
-    """A stack of ``n`` RepConv 3x3 layers (YOLOv6 EfficientRep stage / Rep-PAN)."""
-    y = rep_conv(x, c2, 3, 1, deploy=deploy, data_format=data_format, name=f"{name}.conv1")
-    for i in range(n - 1):
-        y = rep_conv(y, c2, 3, 1, deploy=deploy, data_format=data_format, name=f"{name}.block.{i}")
-    return y
-
-
-def bottlerep(x, c2, shortcut=True, deploy=False, data_format="channels_last", name="bottlerep"):
-    """YOLOv6 BottleRep: two RepConvs with an optional residual add."""
-    c1 = channels_of(x, data_format)
-    y = rep_conv(x, c2, 3, 1, deploy=deploy, data_format=data_format, name=f"{name}.conv1")
-    y = rep_conv(y, c2, 3, 1, deploy=deploy, data_format=data_format, name=f"{name}.conv2")
-    if shortcut and c1 == c2:
-        y = layers.Add(name=f"{name}.add")([x, y])
-    return y
-
-
-def bepc3(x, c2, n=1, e=0.5, deploy=False, data_format="channels_last", name="bepc3"):
-    """YOLOv6 CSPStackRep / BepC3 block (used by the medium & large variants)."""
-    ax = concat_axis(data_format)
-    c_ = int(c2 * e)
-    a = conv_bn(x, c_, 1, 1, data_format=data_format, name=f"{name}.cv1")
-    for i in range(n):
-        a = bottlerep(
-            a, c_, shortcut=True, deploy=deploy, data_format=data_format, name=f"{name}.m.{i}"
-        )
-    b = conv_bn(x, c_, 1, 1, data_format=data_format, name=f"{name}.cv2")
-    y = layers.Concatenate(axis=ax, name=f"{name}.concat")([a, b])
-    return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv3")
 
 
 # --------------------------------------------------------------------------- #
@@ -222,12 +184,32 @@ def rep_ncspelan4(
     return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv4")
 
 
+def elan1(x, c2, c3, c4, data_format="channels_last", name="elan1"):
+    """YOLOv9 ELAN1 block (the RepNCSPELAN4 topology with plain 3x3 convs).
+
+    Structurally a :func:`rep_ncspelan4` where ``cv2``/``cv3`` are single 3x3
+    convolutions instead of ``RepCSP -> Conv`` sequences (used at the first
+    backbone stage of the smaller GELAN variants).
+    """
+    ax = concat_axis(data_format)
+    y = conv_bn(x, c3, 1, 1, data_format=data_format, name=f"{name}.cv1")
+    y0, y1 = ops.split(y, 2, axis=ax)
+    b = conv_bn(y1, c4, 3, 1, data_format=data_format, name=f"{name}.cv2")
+    c = conv_bn(b, c4, 3, 1, data_format=data_format, name=f"{name}.cv3")
+    y = layers.Concatenate(axis=ax, name=f"{name}.concat")([y0, y1, b, c])
+    return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv4")
+
+
 def adown(x, c2, data_format="channels_last", name="adown"):
-    """YOLOv9 ADown downsampling block (avg-pool + max-pool dual branch)."""
+    """YOLOv9 ADown downsampling block (avg-pool + max-pool dual branch).
+
+    The leading ``2x2`` average pool is stride-1 ``valid`` (no padding), matching
+    Ultralytics' ``F.avg_pool2d(x, 2, 1, 0)``.
+    """
     ax = concat_axis(data_format)
     c_ = c2 // 2
     x = layers.AveragePooling2D(
-        pool_size=2, strides=1, padding="same", data_format=data_format, name=f"{name}.avg"
+        pool_size=2, strides=1, padding="valid", data_format=data_format, name=f"{name}.avg"
     )(x)
     x1, x2 = ops.split(x, 2, axis=ax)
     x1 = conv_bn(x1, c_, 3, 2, data_format=data_format, name=f"{name}.cv1")
@@ -236,6 +218,18 @@ def adown(x, c2, data_format="channels_last", name="adown"):
     )(x2)
     x2 = conv_bn(x2, c_, 1, 1, data_format=data_format, name=f"{name}.cv2")
     return layers.Concatenate(axis=ax, name=f"{name}.concat")([x1, x2])
+
+
+def aconv(x, c2, data_format="channels_last", name="aconv"):
+    """YOLOv9 AConv downsampling block (stride-1 ``valid`` avg-pool + 3x3 s2 conv).
+
+    Mirrors Ultralytics' ``AConv``: ``F.avg_pool2d(x, 2, 1, 0)`` followed by a
+    single ``Conv(c2, 3, 2)``.
+    """
+    x = layers.AveragePooling2D(
+        pool_size=2, strides=1, padding="valid", data_format=data_format, name=f"{name}.avg"
+    )(x)
+    return conv_bn(x, c2, 3, 2, data_format=data_format, name=f"{name}.cv1")
 
 
 def sppelan(x, c2, c3, k=5, data_format="channels_last", name="sppelan"):
@@ -255,3 +249,52 @@ def sppelan(x, c2, c3, k=5, data_format="channels_last", name="sppelan"):
         )
     y = layers.Concatenate(axis=ax, name=f"{name}.concat")(pools)
     return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv5")
+
+
+def _spatial_hw(x, data_format):
+    """Static (H, W) of a feature tensor for the given data format."""
+    shape = x.shape
+    return (shape[1], shape[2]) if data_format == "channels_last" else (shape[2], shape[3])
+
+
+def cblinear(x, c2s, data_format="channels_last", name="cblinear"):
+    """YOLOv9-e CBLinear: a single 1x1 conv whose output is split into groups.
+
+    ``c2s`` is the list of per-group output channel counts. Returns a list of
+    tensors (one per group) consumed by :func:`cbfuse`. The conv keeps a bias
+    and has no BatchNorm, matching Ultralytics' ``CBLinear``.
+    """
+    ax = concat_axis(data_format)
+    y = layers.Conv2D(sum(c2s), 1, use_bias=True, data_format=data_format, name=f"{name}.conv")(x)
+    if len(c2s) == 1:
+        return [y]
+    split_points = []
+    running = 0
+    for c in c2s[:-1]:
+        running += c
+        split_points.append(running)
+    return list(ops.split(y, split_points, axis=ax))
+
+
+def cbfuse(xs, idx, data_format="channels_last", name="cbfuse"):
+    """YOLOv9-e CBFuse: select, resize and sum multi-scale CBLinear features.
+
+    ``xs`` is ``[cblinear_out_0, ..., cblinear_out_{n-1}, target]`` where each
+    ``cblinear_out_i`` is a list of tensors and ``target`` is the running
+    feature map. For each source we take element ``idx[i]``, nearest-resize it to
+    the target's spatial size and sum everything (matching Ultralytics'
+    ``torch.sum(torch.stack(res + xs[-1:]), dim=0)``).
+    """
+    target = xs[-1]
+    th, tw = _spatial_hw(target, data_format)
+    parts = []
+    for i, src in enumerate(xs[:-1]):
+        sel = src[idx[i]]
+        sh, sw = _spatial_hw(sel, data_format)
+        if (sh, sw) != (th, tw):
+            sel = ops.image.resize(
+                sel, size=(th, tw), interpolation="nearest", data_format=data_format
+            )
+        parts.append(sel)
+    parts.append(target)
+    return layers.Add(name=f"{name}.add")(parts)

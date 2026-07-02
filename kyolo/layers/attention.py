@@ -17,10 +17,12 @@ dynamic.
 
 from __future__ import annotations
 
+import keras
 from keras import ops
 
+from .blocks import c3k
 from .common import channels_of, concat_axis, conv_bn
-from .knames import layers
+from .knames import kname, layers
 
 __all__ = [
     "mhsa",
@@ -32,6 +34,7 @@ __all__ = [
     "c2f_cib",
     "rep_vgg_dw",
     "area_attention",
+    "ablock",
     "a2c2f",
 ]
 
@@ -255,39 +258,131 @@ def area_attention(x, num_heads=4, area=1, data_format="channels_last", name="aa
     v_img = ops.transpose(v, (0, 2, 1, 3))
     v_img = ops.reshape(v_img, (-1, H, W, all_head))
     v_img = _from_nhwc(v_img, data_format)
+    # The YOLO12 AAttn positional-encoding conv keeps a bias (unusual for a
+    # conv-bn pair); the official checkpoints were trained with it, so it must
+    # be present for the running-mean-based BN to reproduce the reference.
     pe = conv_bn(
-        v_img, dim, 7, 1, groups=dim, act=False, data_format=data_format, name=f"{name}.pe"
+        v_img,
+        dim,
+        7,
+        1,
+        groups=dim,
+        act=False,
+        use_bias=True,
+        data_format=data_format,
+        name=f"{name}.pe",
     )
     out = layers.Add(name=f"{name}.add_pe")([out, pe])
     return conv_bn(out, dim, 1, 1, act=False, data_format=data_format, name=f"{name}.proj")
+
+
+class _ResidualScale(keras.layers.Layer):
+    """``x + gamma * y`` with a learnable per-channel ``gamma`` (YOLO12 A2C2f).
+
+    Mirrors the Ultralytics ``A2C2f`` residual: the ``gamma`` is a bare
+    parameter initialised to 0.01. The weight leaf is named ``scale`` so the
+    converter maps it to the Torch ``gamma`` parameter (see
+    :mod:`kyolo.conversion.convert`).
+    """
+
+    def __init__(self, channels, data_format="channels_last", **kwargs):
+        super().__init__(**kwargs)
+        self.channels = channels
+        self.data_format = data_format
+
+    def build(self, input_shape):
+        self.scale = self.add_weight(
+            name="scale",
+            shape=(self.channels,),
+            initializer=keras.initializers.Constant(0.01),
+            trainable=True,
+        )
+
+    def call(self, inputs):
+        x, y = inputs
+        shape = (1, 1, 1, -1) if self.data_format == "channels_last" else (1, -1, 1, 1)
+        return x + ops.reshape(self.scale, shape) * y
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0]
+
+
+def ablock(x, num_heads, area=1, mlp_ratio=2.0, data_format="channels_last", name="ablock"):
+    """YOLO12 ABlock: residual area-attention followed by a residual MLP.
+
+    Mirrors the Ultralytics ``ABlock``: ``x = x + attn(x)`` then
+    ``x = x + mlp(x)``, where ``mlp`` is ``Conv(1x1) -> Conv(1x1, act=False)``
+    with hidden width ``int(dim * mlp_ratio)``.
+    """
+    c = channels_of(x, data_format)
+    att = area_attention(
+        x, num_heads=num_heads, area=area, data_format=data_format, name=f"{name}.attn"
+    )
+    x = layers.Add(name=f"{name}.add_attn")([x, att])
+    hidden = int(c * mlp_ratio)
+    mlp = conv_bn(x, hidden, 1, 1, data_format=data_format, name=f"{name}.mlp.0")
+    mlp = conv_bn(mlp, c, 1, 1, act=False, data_format=data_format, name=f"{name}.mlp.1")
+    return layers.Add(name=f"{name}.add_mlp")([x, mlp])
 
 
 def a2c2f(
     x,
     c2,
     n=1,
+    a2=True,
     area=1,
-    num_heads=4,
-    mlp_ratio=1.2,
+    mlp_ratio=2.0,
     e=0.5,
+    shortcut=True,
+    residual=False,
     data_format="channels_last",
     name="a2c2f",
 ):
-    """YOLO12 A2C2f: C2f-style aggregation with area-attention + MLP blocks."""
+    """YOLO12 A2C2f: C2f-style aggregation over area-attention or C3k blocks.
+
+    Each of the ``n`` inner entries (``m.{i}``) is, following Ultralytics'
+    ``A2C2f``:
+
+    * ``a2=True``  -> a sequence of two :func:`ablock` area-attention blocks
+      (``m.{i}.0`` and ``m.{i}.1``); ``num_heads`` is ``hidden // 32``.
+    * ``a2=False`` -> a single :func:`kyolo.layers.c3k` block (``n=2``), i.e. no
+      attention (the configuration used by the YOLO12 neck).
+
+    ``residual`` (used by the L/X scales, together with ``mlp_ratio=1.2``) adds a
+    learnable per-channel residual ``x + gamma * y``; it only takes effect when
+    ``a2=True`` (matching Ultralytics' ``gamma if a2 and residual``).
+    """
     ax = concat_axis(data_format)
     c_ = int(c2 * e)
     y = conv_bn(x, c_, 1, 1, data_format=data_format, name=f"{name}.cv1")
     outs = [y]
     cur = y
+    num_heads = max(1, c_ // 32)
     for i in range(n):
-        att = area_attention(
-            cur, num_heads=num_heads, area=area, data_format=data_format, name=f"{name}.m.{i}.attn"
-        )
-        cur = layers.Add(name=f"{name}.m.{i}.add_attn")([cur, att])
-        hidden = int(c_ * mlp_ratio)
-        mlp = conv_bn(cur, hidden, 1, 1, data_format=data_format, name=f"{name}.m.{i}.mlp.0")
-        mlp = conv_bn(mlp, c_, 1, 1, act=False, data_format=data_format, name=f"{name}.m.{i}.mlp.1")
-        cur = layers.Add(name=f"{name}.m.{i}.add_mlp")([cur, mlp])
+        if a2:
+            # Ultralytics stacks exactly two ABlocks per inner entry.
+            for j in range(2):
+                cur = ablock(
+                    cur,
+                    num_heads=num_heads,
+                    area=area,
+                    mlp_ratio=mlp_ratio,
+                    data_format=data_format,
+                    name=f"{name}.m.{i}.{j}",
+                )
+        else:
+            cur = c3k(
+                cur,
+                c_,
+                n=2,
+                shortcut=shortcut,
+                k=3,
+                data_format=data_format,
+                name=f"{name}.m.{i}",
+            )
         outs.append(cur)
     y = layers.Concatenate(axis=ax, name=f"{name}.concat")(outs)
-    return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv2")
+    y = conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv2")
+    if a2 and residual:
+        y = _ResidualScale(c2, data_format=data_format, name=kname(name))([x, y])
+    return y

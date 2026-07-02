@@ -63,6 +63,8 @@ __all__ = [
 
 
 # Maps a Keras variable leaf name -> the corresponding PyTorch parameter suffix.
+# ``scale`` is kyolo's leaf for the YOLO12 A2C2f residual gamma (a bare Torch
+# ``nn.Parameter`` named ``gamma``); no other kyolo layer emits a ``scale`` leaf.
 _SUFFIX_MAP = {
     "kernel": "weight",
     "gamma": "weight",
@@ -70,6 +72,7 @@ _SUFFIX_MAP = {
     "moving_mean": "running_mean",
     "moving_variance": "running_var",
     "bias": "bias",
+    "scale": "gamma",
 }
 
 # Torch tensors that kyolo intentionally does not carry as model weights, so they

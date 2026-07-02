@@ -1,86 +1,131 @@
-"""YOLOv9 - GELAN (RepNCSPELAN4 + ADown + SPPELAN) backbone/neck, DFL head.
+"""YOLOv9 - GELAN (RepNCSPELAN4 / ELAN1 + ADown / AConv + SPPELAN), DFL head.
 
-Implements the deploy-time GELAN topology (the reparameterized inference model,
-equivalent to ``gelan-c``). The auxiliary PGI branches used only during the
-original v9 training are not built. Channel widths are scaled per variant.
+Each variant (``t``, ``s``, ``m``, ``c``, ``e``) is a distinct topology, so the
+model is assembled by interpreting the per-variant spec in :mod:`.config`, which
+mirrors the Ultralytics YOLOv9 ``.yaml`` files layer for layer. The ``e`` variant
+includes the dual-branch programmable-gradient path (``CBLinear`` / ``CBFuse``).
+
+Reparameterizable blocks are built unfused (``deploy=False``) by default because
+that is the form the official checkpoints ship in; a fused inference graph is
+mathematically equivalent and can be requested with ``deploy=True``.
 """
 
 from __future__ import annotations
 
-from ...layers import adown, conv_bn, rep_ncspelan4, sppelan
+from ...layers import (
+    aconv,
+    adown,
+    cbfuse,
+    cblinear,
+    conv_bn,
+    elan1,
+    rep_ncspelan4,
+    sppelan,
+)
 from ...layers.common import concat_axis, resolve_data_format
 from ...layers.knames import layers
-from ..base import finalize_detector, image_input, scale_channels
-from .config import YOLOV9_CONFIG
+from ..base import finalize_detector, image_input, make_divisible
+from .config import YOLOV9_SPECS
 
-__all__ = ["YOLOV9_CONFIG", "build_yolov9", "YOLOv9"]
+__all__ = ["YOLOV9_SPECS", "build_yolov9", "YOLOv9"]
 
 
-# variant: width multiplier (GELAN-c channel structure is scaled by this)
+def _round(c):
+    """Round a module output channel to a multiple of 8 (Ultralytics parse_model).
+
+    Only the top-level output channel (``args[0]``) is rounded; internal widths
+    such as a RepNCSPELAN4 ``c3``/``c4`` are passed through unchanged, matching
+    how ``parse_model`` scales the modules.
+    """
+    return make_divisible(c, 8)
+
+
+def _gather(frm, prev, outputs):
+    """Resolve a spec ``from`` field into the layer input(s)."""
+    if frm == -1:
+        return prev
+    if isinstance(frm, int):
+        return outputs[frm]
+    return [prev if j == -1 else outputs[j] for j in frm]
+
+
+def _build_layer(op, x, a, deploy, data_format, ax, name):
+    """Build a single spec layer and return its output tensor (or tensor list)."""
+    if op == "Conv":
+        c2, k, s = a
+        return conv_bn(x, _round(c2), k, s, data_format=data_format, name=name)
+    if op == "RepNCSPELAN4":
+        c2, c3, c4, n = a
+        return rep_ncspelan4(
+            x, _round(c2), c3, c4, n=n, deploy=deploy, data_format=data_format, name=name
+        )
+    if op == "ELAN1":
+        c2, c3, c4 = a
+        return elan1(x, _round(c2), c3, c4, data_format=data_format, name=name)
+    if op == "ADown":
+        return adown(x, _round(a[0]), data_format=data_format, name=name)
+    if op == "AConv":
+        return aconv(x, _round(a[0]), data_format=data_format, name=name)
+    if op == "SPPELAN":
+        c2, c3 = a
+        return sppelan(x, _round(c2), c3, 5, data_format=data_format, name=name)
+    if op == "Upsample":
+        return layers.UpSampling2D(2, data_format=data_format, interpolation="nearest", name=name)(
+            x
+        )
+    if op == "Concat":
+        return layers.Concatenate(axis=ax, name=name)(x)
+    if op == "CBLinear":
+        return cblinear(x, [_round(c) for c in a[0]], data_format=data_format, name=name)
+    if op == "CBFuse":
+        return cbfuse(x, a[0], data_format=data_format, name=name)
+    if op == "Identity":
+        return x
+    raise ValueError(f"unknown YOLOv9 spec op {op!r}")
+
+
 def build_yolov9(
     variant="c",
     nc=80,
     input_shape=(640, 640, 3),
     data_format=None,
-    deploy=True,
+    deploy=False,
     reg_max=16,
     **kwargs,
 ):
-    w = YOLOV9_CONFIG[variant]
+    """Assemble a YOLOv9 detector from its per-variant spec (see :mod:`.config`)."""
+    if variant not in YOLOV9_SPECS:
+        raise ValueError(
+            f"unknown YOLOv9 variant {variant!r}; expected one of {list(YOLOV9_SPECS)}"
+        )
+    spec = YOLOV9_SPECS[variant]
     data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
-    def ch(c):
-        return scale_channels(c, w)
-
-    def gelan(x, c2, c3, c4, name):
-        return rep_ncspelan4(
-            x, ch(c2), ch(c3), ch(c4), n=1, deploy=deploy, data_format=data_format, name=name
-        )
-
-    def up(x, name):
-        return layers.UpSampling2D(2, data_format=data_format, interpolation="nearest", name=name)(
-            x
-        )
-
-    def cat(xs, name):
-        return layers.Concatenate(axis=ax, name=name)(xs)
-
     inp = image_input(input_shape, data_format)
+    outputs = []
+    prev = inp
+    detect_from = None
+    detect_idx = None
+    for i, (frm, op, a) in enumerate(spec):
+        if op == "Detect":
+            detect_from = frm
+            detect_idx = i
+            break
+        x = _gather(frm, prev, outputs)
+        y = _build_layer(op, x, a, deploy, data_format, ax, f"model.{i}")
+        outputs.append(y)
+        prev = y
 
-    # --- backbone (GELAN) ---
-    x = conv_bn(inp, ch(64), 3, 2, data_format=data_format, name="model.0")
-    x = conv_bn(x, ch(128), 3, 2, data_format=data_format, name="model.1")
-    x = gelan(x, 256, 128, 64, "model.2")
-    x = adown(x, ch(256), data_format=data_format, name="model.3")
-    x = gelan(x, 512, 256, 128, "model.4")
-    p3 = x
-    x = adown(x, ch(512), data_format=data_format, name="model.5")
-    x = gelan(x, 512, 512, 256, "model.6")
-    p4 = x
-    x = adown(x, ch(512), data_format=data_format, name="model.7")
-    x = gelan(x, 512, 512, 256, "model.8")
-    x = sppelan(x, ch(512), ch(256), 5, data_format=data_format, name="model.9")
-    p5 = x
-
-    # --- neck ---
-    t = cat([up(p5, "up0"), p4], "cat0")
-    p4n = gelan(t, 512, 512, 256, "model.12")
-    t = cat([up(p4n, "up1"), p3], "cat1")
-    p3o = gelan(t, 256, 256, 128, "model.15")
-    t = cat([adown(p3o, ch(256), data_format=data_format, name="model.16"), p4n], "cat2")
-    p4o = gelan(t, 512, 512, 256, "model.18")
-    t = cat([adown(p4o, ch(512), data_format=data_format, name="model.19"), p5], "cat3")
-    p5o = gelan(t, 512, 512, 256, "model.21")
-
+    feats = [outputs[j] for j in detect_from]
     return finalize_detector(
         inp,
-        [p3o, p4o, p5o],
+        feats,
         nc=nc,
         reg_max=reg_max,
         data_format=data_format,
         name=f"yolov9{variant}",
-        head_name="model.22",  # matches the Ultralytics YOLOv9 Detect module index
+        head_name=f"model.{detect_idx}",  # matches the Ultralytics Detect index
     )
 
 
@@ -89,7 +134,7 @@ def YOLOv9(
     nc=80,
     input_shape=(640, 640, 3),
     data_format=None,
-    deploy=True,
+    deploy=False,
     **kwargs,
 ):
     """Factory for a YOLOv9 detector (variant in ``{t, s, m, c, e}``)."""

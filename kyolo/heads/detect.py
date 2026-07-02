@@ -32,6 +32,7 @@ def detect_head(
     nc=80,
     reg_max=16,
     cls_dw=False,
+    act=True,
     data_format=None,
     name="detect",
 ):
@@ -44,6 +45,7 @@ def detect_head(
         cls_dw: if ``True`` the first two class-branch convs are depth-wise
             separable (the lightweight head used by YOLO11/12/26); otherwise
             plain convs (YOLOv8 style).
+        act: conv activation (``True`` -> SiLU, the YOLO default, or a string).
         data_format: ``"channels_last"`` or ``"channels_first"``.
         name: dotted name prefix.
 
@@ -59,8 +61,8 @@ def detect_head(
     outputs = []
     for i, f in enumerate(feats):
         # --- box (regression) branch ---
-        reg = conv_bn(f, c2, 3, 1, data_format=data_format, name=f"{name}.cv2.{i}.0")
-        reg = conv_bn(reg, c2, 3, 1, data_format=data_format, name=f"{name}.cv2.{i}.1")
+        reg = conv_bn(f, c2, 3, 1, act=act, data_format=data_format, name=f"{name}.cv2.{i}.0")
+        reg = conv_bn(reg, c2, 3, 1, act=act, data_format=data_format, name=f"{name}.cv2.{i}.1")
         reg = layers.Conv2D(
             4 * reg_max,
             1,
@@ -71,13 +73,21 @@ def detect_head(
 
         # --- class branch ---
         if cls_dw:
-            cls = dw_conv(f, ch[i], 3, 1, data_format=data_format, name=f"{name}.cv3.{i}.0.0")
-            cls = conv_bn(cls, c3, 1, 1, data_format=data_format, name=f"{name}.cv3.{i}.0.1")
-            cls = dw_conv(cls, c3, 3, 1, data_format=data_format, name=f"{name}.cv3.{i}.1.0")
-            cls = conv_bn(cls, c3, 1, 1, data_format=data_format, name=f"{name}.cv3.{i}.1.1")
+            cls = dw_conv(
+                f, ch[i], 3, 1, act=act, data_format=data_format, name=f"{name}.cv3.{i}.0.0"
+            )
+            cls = conv_bn(
+                cls, c3, 1, 1, act=act, data_format=data_format, name=f"{name}.cv3.{i}.0.1"
+            )
+            cls = dw_conv(
+                cls, c3, 3, 1, act=act, data_format=data_format, name=f"{name}.cv3.{i}.1.0"
+            )
+            cls = conv_bn(
+                cls, c3, 1, 1, act=act, data_format=data_format, name=f"{name}.cv3.{i}.1.1"
+            )
         else:
-            cls = conv_bn(f, c3, 3, 1, data_format=data_format, name=f"{name}.cv3.{i}.0")
-            cls = conv_bn(cls, c3, 3, 1, data_format=data_format, name=f"{name}.cv3.{i}.1")
+            cls = conv_bn(f, c3, 3, 1, act=act, data_format=data_format, name=f"{name}.cv3.{i}.0")
+            cls = conv_bn(cls, c3, 3, 1, act=act, data_format=data_format, name=f"{name}.cv3.{i}.1")
         cls = layers.Conv2D(
             nc,
             1,

@@ -80,6 +80,7 @@ def finalize_detector(
     nc=80,
     reg_max=16,
     cls_dw=False,
+    head_act=True,
     data_format=None,
     name="kyolo",
     head_name="head",
@@ -101,6 +102,7 @@ def finalize_detector(
         nc=nc,
         reg_max=reg_max,
         cls_dw=cls_dw,
+        act=head_act,
         data_format=data_format,
         name=head_name,
     )

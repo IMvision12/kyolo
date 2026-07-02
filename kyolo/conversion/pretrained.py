@@ -32,9 +32,6 @@ _PT_STEM = {
     "yolov5m": "yolov5mu",
     "yolov5l": "yolov5lu",
     "yolov5x": "yolov5xu",
-    "yolov7": "yolov7",
-    "yolov7_tiny": "yolov7-tiny",
-    "yolov7_x": "yolov7x",
 }
 
 
@@ -89,8 +86,8 @@ def _download_official_pt(name, cache_dir, force):
     except Exception as e:
         raise RuntimeError(
             f"Could not auto-download official weights for {name!r} via ultralytics "
-            f"({e}). This is expected for non-ultralytics families (e.g. YOLOv6, "
-            f"YOLOv7): download the .pt yourself and pass weights='/path/to.pt'."
+            f"({e}). If no checkpoint is hosted for this model, download a .pt "
+            f"yourself and pass weights='/path/to.pt'."
         ) from e
 
     path = getattr(yolo, "ckpt_path", None)

@@ -37,14 +37,12 @@ skip_channels_first_on_tf = pytest.mark.skipif(
 # A representative small variant factory from every family.
 MODEL_NAMES = [
     "yolov5n",
-    "yolov6n",
     "yolov8n",
     "yolov9t",
     "yolov10n",
     "yolo11n",
     "yolo12n",
     "yolo26n",
-    "yolov7_tiny",
 ]
 
 NC = 80

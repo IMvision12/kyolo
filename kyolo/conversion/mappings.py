@@ -46,12 +46,7 @@ NAME_MAPPINGS: Dict[str, Dict[str, str]] = {
     "yolo11": {},
     "yolo12": {},
     "yolo26": {},
-    # MT-YOLOv6 (meituan) checkpoints. Backbone/neck mostly align; the head is
-    # the usual place a per-checkpoint tweak is required.
-    "yolov6": {},
-    # WongKinYiu YOLOv7 / YOLOv9. Same story: structural names align, head may
-    # need attention.
-    "yolov7": {},
+    # WongKinYiu YOLOv9. Structural names align; the head may need attention.
     "yolov9": {},
 }
 
@@ -67,8 +62,6 @@ def _family_of(model_name: str) -> str:
     # "yolov10" is not swallowed by "yolov1".
     for family in (
         "yolov5",
-        "yolov6",
-        "yolov7",
         "yolov8",
         "yolov9",
         "yolov10",

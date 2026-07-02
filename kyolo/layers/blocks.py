@@ -1,4 +1,4 @@
-"""CSP / SPP / ELAN building blocks.
+"""CSP / SPP building blocks.
 
 Functional builders (they take a tensor and a dotted ``name`` prefix and return
 a tensor). Sub-layer names mirror the official PyTorch modules so the weight
@@ -20,8 +20,6 @@ __all__ = [
     "c3k",
     "c3k2",
     "sppf",
-    "sppcspc",
-    "elan",
 ]
 
 
@@ -182,12 +180,16 @@ def c3k2(
     return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv2")
 
 
-def sppf(x, c2, k=5, data_format="channels_last", name="sppf"):
-    """Spatial Pyramid Pooling - Fast (three chained max-pools)."""
+def sppf(x, c2, k=5, act=True, data_format="channels_last", name="sppf"):
+    """Spatial Pyramid Pooling - Fast (three chained max-pools).
+
+    ``act`` selects the conv activation (``True`` -> SiLU, the YOLO default, or a
+    string activation name).
+    """
     ax = concat_axis(data_format)
     c1 = channels_of(x, data_format)
     c_ = c1 // 2
-    y = conv_bn(x, c_, 1, 1, data_format=data_format, name=f"{name}.cv1")
+    y = conv_bn(x, c_, 1, 1, act=act, data_format=data_format, name=f"{name}.cv1")
     pools = [y]
     for i in range(3):
         pools.append(
@@ -200,58 +202,4 @@ def sppf(x, c2, k=5, data_format="channels_last", name="sppf"):
             )(pools[-1])
         )
     y = layers.Concatenate(axis=ax, name=f"{name}.concat")(pools)
-    return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv2")
-
-
-def sppcspc(x, c2, e=0.5, kernels=(5, 9, 13), data_format="channels_last", name="sppcspc"):
-    """CSP Spatial Pyramid Pooling (YOLOv7 SPP block)."""
-    ax = concat_axis(data_format)
-    c_ = int(2 * c2 * e)
-    a = conv_bn(x, c_, 1, 1, data_format=data_format, name=f"{name}.cv1")
-    a = conv_bn(a, c_, 3, 1, data_format=data_format, name=f"{name}.cv3")
-    a = conv_bn(a, c_, 1, 1, data_format=data_format, name=f"{name}.cv4")
-    pooled = [a]
-    for i, k in enumerate(kernels):
-        pooled.append(
-            layers.MaxPooling2D(
-                pool_size=k,
-                strides=1,
-                padding="same",
-                data_format=data_format,
-                name=f"{name}.m.{i}",
-            )(a)
-        )
-    y1 = layers.Concatenate(axis=ax, name=f"{name}.concat1")(pooled)
-    y1 = conv_bn(y1, c_, 1, 1, data_format=data_format, name=f"{name}.cv5")
-    y1 = conv_bn(y1, c_, 3, 1, data_format=data_format, name=f"{name}.cv6")
-    y2 = conv_bn(x, c_, 1, 1, data_format=data_format, name=f"{name}.cv2")
-    y = layers.Concatenate(axis=ax, name=f"{name}.concat2")([y1, y2])
-    return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv7")
-
-
-def elan(
-    x,
-    c2,
-    mid_channels,
-    depth=2,
-    data_format="channels_last",
-    name="elan",
-):
-    """YOLOv7 ELAN aggregation block.
-
-    Two 1x1 reduction convs feed a chain of 3x3 convs; the outputs of the
-    reductions and every other 3x3 conv are concatenated and fused. ``depth``
-    controls how many 3x3 convs are stacked (2 for ELAN, 4 for the wider
-    E-ELAN used in the larger YOLOv7 variants).
-    """
-    ax = concat_axis(data_format)
-    a = conv_bn(x, mid_channels, 1, 1, data_format=data_format, name=f"{name}.cv1")
-    b = conv_bn(x, mid_channels, 1, 1, data_format=data_format, name=f"{name}.cv2")
-    branches = [a, b]
-    cur = b
-    for i in range(depth):
-        cur = conv_bn(cur, mid_channels, 3, 1, data_format=data_format, name=f"{name}.cv3.{i}")
-        cur = conv_bn(cur, mid_channels, 3, 1, data_format=data_format, name=f"{name}.cv4.{i}")
-        branches.append(cur)
-    y = layers.Concatenate(axis=ax, name=f"{name}.concat")(branches)
-    return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv5")
+    return conv_bn(y, c2, 1, 1, act=act, data_format=data_format, name=f"{name}.cv2")

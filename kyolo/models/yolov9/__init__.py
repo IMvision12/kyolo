@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .config import YOLOV9_CONFIG
+from .config import YOLOV9_SPECS
 from .yolov9_model import YOLOv9, build_yolov9
 
 
@@ -10,7 +10,7 @@ def yolov9t(
     nc=80,
     input_shape=(640, 640, 3),
     data_format=None,
-    deploy=True,
+    deploy=False,
     weights=None,
     convert_weights=False,
     cache_dir=None,
@@ -26,7 +26,9 @@ def yolov9t(
             (C, H, W) for channels_first.
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
-        deploy: build reparameterizable blocks in fused (inference) form.
+        deploy: build reparameterizable blocks in fused form. Defaults to
+            False (unfused), matching how the official checkpoints ship; the
+            fused graph is mathematically equivalent.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
             URL) is converted from PyTorch first.
@@ -62,7 +64,7 @@ def yolov9s(
     nc=80,
     input_shape=(640, 640, 3),
     data_format=None,
-    deploy=True,
+    deploy=False,
     weights=None,
     convert_weights=False,
     cache_dir=None,
@@ -78,7 +80,9 @@ def yolov9s(
             (C, H, W) for channels_first.
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
-        deploy: build reparameterizable blocks in fused (inference) form.
+        deploy: build reparameterizable blocks in fused form. Defaults to
+            False (unfused), matching how the official checkpoints ship; the
+            fused graph is mathematically equivalent.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
             URL) is converted from PyTorch first.
@@ -114,7 +118,7 @@ def yolov9m(
     nc=80,
     input_shape=(640, 640, 3),
     data_format=None,
-    deploy=True,
+    deploy=False,
     weights=None,
     convert_weights=False,
     cache_dir=None,
@@ -130,7 +134,9 @@ def yolov9m(
             (C, H, W) for channels_first.
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
-        deploy: build reparameterizable blocks in fused (inference) form.
+        deploy: build reparameterizable blocks in fused form. Defaults to
+            False (unfused), matching how the official checkpoints ship; the
+            fused graph is mathematically equivalent.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
             URL) is converted from PyTorch first.
@@ -166,7 +172,7 @@ def yolov9c(
     nc=80,
     input_shape=(640, 640, 3),
     data_format=None,
-    deploy=True,
+    deploy=False,
     weights=None,
     convert_weights=False,
     cache_dir=None,
@@ -182,7 +188,9 @@ def yolov9c(
             (C, H, W) for channels_first.
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
-        deploy: build reparameterizable blocks in fused (inference) form.
+        deploy: build reparameterizable blocks in fused form. Defaults to
+            False (unfused), matching how the official checkpoints ship; the
+            fused graph is mathematically equivalent.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
             URL) is converted from PyTorch first.
@@ -218,7 +226,7 @@ def yolov9e(
     nc=80,
     input_shape=(640, 640, 3),
     data_format=None,
-    deploy=True,
+    deploy=False,
     weights=None,
     convert_weights=False,
     cache_dir=None,
@@ -234,7 +242,9 @@ def yolov9e(
             (C, H, W) for channels_first.
         data_format: "channels_last", "channels_first", or None to use the
             global keras.config.image_data_format() (the default).
-        deploy: build reparameterizable blocks in fused (inference) form.
+        deploy: build reparameterizable blocks in fused form. Defaults to
+            False (unfused), matching how the official checkpoints ship; the
+            fused graph is mathematically equivalent.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
             URL) is converted from PyTorch first.
@@ -269,7 +279,7 @@ def yolov9e(
 __all__ = [
     "YOLOv9",
     "build_yolov9",
-    "YOLOV9_CONFIG",
+    "YOLOV9_SPECS",
     "yolov9t",
     "yolov9s",
     "yolov9m",

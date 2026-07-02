@@ -2,6 +2,7 @@
 
 from .attention import (
     a2c2f,
+    ablock,
     area_attention,
     c2f_cib,
     c2psa,
@@ -17,18 +18,17 @@ from .blocks import (
     c3,
     c3k,
     c3k2,
-    elan,
-    sppcspc,
     sppf,
 )
 from .common import act_layer, autopad, channels_of, concat_axis, conv_bn, dw_conv
 from .dfl import DFL
 from .letterbox import Letterbox
 from .reparam import (
+    aconv,
     adown,
-    bepc3,
-    bottlerep,
-    rep_block,
+    cbfuse,
+    cblinear,
+    elan1,
     rep_bottleneck,
     rep_conv,
     rep_ncsp,
@@ -44,25 +44,24 @@ __all__ = [
     "act_layer",
     "channels_of",
     "concat_axis",
-    # csp / spp / elan
+    # csp / spp
     "bottleneck",
     "c3",
     "c2f",
     "c3k",
     "c3k2",
     "sppf",
-    "sppcspc",
-    "elan",
     # reparam / gelan
     "rep_conv",
-    "rep_block",
     "rep_bottleneck",
     "rep_ncsp",
     "rep_ncspelan4",
+    "elan1",
     "adown",
+    "aconv",
     "sppelan",
-    "bottlerep",
-    "bepc3",
+    "cblinear",
+    "cbfuse",
     # attention
     "mhsa",
     "psa_block",
@@ -72,6 +71,7 @@ __all__ = [
     "cib",
     "c2f_cib",
     "area_attention",
+    "ablock",
     "a2c2f",
     # layers
     "DFL",

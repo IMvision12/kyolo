@@ -1,7 +1,7 @@
 # kyolo - YOLO in pure Keras 3
 
 `kyolo` is a pure [Keras 3](https://keras.io) implementation of the YOLO
-object-detection family (YOLOv5, v6, v7, v8, v9, v10, YOLO11, YOLO12, YOLO26).
+object-detection family (YOLOv5, v8, v9, v10, YOLO11, YOLO12, YOLO26).
 Every layer, loss, and pre/post-processing step is written entirely in
 `keras.ops`, so the exact same code runs unchanged on the **TensorFlow**,
 **JAX**, and **PyTorch** backends. It ships with best-effort utilities for
@@ -11,9 +11,7 @@ converting the official PyTorch checkpoints into Keras `.weights.h5` files.
 
 | Family   | Variants                     | Detection head                         |
 | -------- | ---------------------------- | -------------------------------------- |
-| YOLOv5   | `n` `s` `m` `l` `x`          | Classic anchor-based (NMS)             |
-| YOLOv6   | `n` `s` `m` `l`              | Anchor-free, DFL (NMS)                 |
-| YOLOv7   | `yolov7` `yolov7-tiny` `yolov7-x` | Classic anchor-based (NMS)        |
+| YOLOv5   | `n` `s` `m` `l` `x`          | Anchor-free, DFL (NMS)                 |
 | YOLOv8   | `n` `s` `m` `l` `x`          | Anchor-free, DFL (NMS)                 |
 | YOLOv9   | `t` `s` `m` `c` `e`          | Anchor-free, DFL (NMS)                 |
 | YOLOv10  | `n` `s` `m` `b` `l` `x`      | Anchor-free, DFL, **end-to-end (NMS-free)** |
@@ -25,19 +23,18 @@ Each variant is a **factory function** named `<family><variant>`, imported
 directly from `kyolo.models` (or `kyolo`):
 
 ```python
-from kyolo.models import yolov5n, yolov8m, yolo11s, yolov9c, yolov7_tiny
+from kyolo.models import yolov5n, yolov8m, yolo11s, yolov9c, yolov10n
 model = yolov8m(nc=80)          # -> keras.Model
 ```
 
-`kyolo.models.MODEL_NAMES` lists all 43 factories. (YOLOv7 uses `yolov7`,
-`yolov7_tiny`, `yolov7_x`.)
+`kyolo.models.MODEL_NAMES` lists all 36 factories.
 
 Regardless of family, a model's forward pass returns a **list of 3 raw feature
 maps** `[P3, P4, P5]`, each of shape `(B, Hi, Wi, 4 * reg_max + nc)` in
-channels-last layout, with `reg_max = 16` and strides `(8, 16, 32)`. The
-anchor-free families (v6/v8/v9/11/12/26) decode boxes with a Distribution Focal
-Loss (DFL) regression head; the end-to-end families (v10, v26) are trained to be
-NMS-free but a standard NMS postprocessor is still available for the rest.
+channels-last layout, with `reg_max = 16` and strides `(8, 16, 32)`. Every
+family decodes boxes with a Distribution Focal Loss (DFL) regression head; the
+end-to-end families (v10, v26) are trained to be NMS-free but a standard NMS
+postprocessor is still available for the rest.
 
 ## Installation
 
@@ -198,7 +195,7 @@ model = yolov8n(nc=80, weights="yolov8n.pt")
 `convert_weights=True` caches the converted `.weights.h5` under `~/.cache/kyolo`
 (override with `cache_dir=` or the `KYOLO_CACHE` env var), so subsequent calls
 load instantly. Auto-download covers the ultralytics families (v5, v8, v9, v10,
-11, 12, 26); for YOLOv6 / YOLOv7 fetch the `.pt` yourself and pass `weights=`.
+11, 12, 26).
 
 ### From the command line
 
