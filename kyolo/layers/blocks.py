@@ -137,13 +137,19 @@ def c3k2(
     c2,
     n=1,
     use_c3k=False,
+    attn=False,
     shortcut=True,
     groups=1,
     e=0.5,
     data_format="channels_last",
     name="c3k2",
 ):
-    """YOLO11 C3k2 block: a C2f whose inner blocks are C3k or Bottleneck."""
+    """YOLO11 C3k2 block: a C2f whose inner blocks are C3k or Bottleneck.
+
+    ``attn`` (the YOLO26 ``C3k2(..., attn=True)`` variant) makes each inner entry
+    a ``Sequential(Bottleneck, PSABlock)`` (``m.{i}.0`` / ``m.{i}.1``), adding a
+    transformer block after the bottleneck; it takes precedence over ``use_c3k``.
+    """
     ax = concat_axis(data_format)
     c_ = int(c2 * e)
     y = conv_bn(x, 2 * c_, 1, 1, data_format=data_format, name=f"{name}.cv1")
@@ -151,7 +157,30 @@ def c3k2(
     outputs = [y0, y1]
     cur = y1
     for i in range(n):
-        if use_c3k:
+        if attn:
+            # Bottleneck followed by a PSABlock (num_heads = c_ // 64). Lazy
+            # import avoids the blocks <-> attention circular dependency.
+            from .attention import psa_block
+
+            cur = bottleneck(
+                cur,
+                c_,
+                shortcut=shortcut,
+                groups=groups,
+                kernels=(3, 3),
+                e=0.5,
+                data_format=data_format,
+                name=f"{name}.m.{i}.0",
+            )
+            cur = psa_block(
+                cur,
+                num_heads=max(c_ // 64, 1),
+                attn_ratio=0.5,
+                shortcut=True,
+                data_format=data_format,
+                name=f"{name}.m.{i}.1",
+            )
+        elif use_c3k:
             cur = c3k(
                 cur,
                 c_,
@@ -180,16 +209,21 @@ def c3k2(
     return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv2")
 
 
-def sppf(x, c2, k=5, act=True, data_format="channels_last", name="sppf"):
+def sppf(x, c2, k=5, act=True, cv1_act=True, shortcut=False, data_format="channels_last", name="sppf"):
     """Spatial Pyramid Pooling - Fast (three chained max-pools).
 
-    ``act`` selects the conv activation (``True`` -> SiLU, the YOLO default, or a
-    string activation name).
+    ``act`` selects the ``cv2`` fusion-conv activation (``True`` -> SiLU, the
+    YOLO default, or a string activation name). ``cv1_act`` selects the ``cv1``
+    reduction-conv activation: the YOLOv5/8/10/11 checkpoints carry a SiLU there
+    (``True``), whereas YOLO26's ``SPPF`` reduction conv is activation-free
+    (pass ``cv1_act=False``). ``shortcut`` adds the input as a residual
+    (``y + x``, the YOLO26 ``SPPF(..., shortcut=True)`` variant; requires
+    ``c1 == c2``).
     """
     ax = concat_axis(data_format)
     c1 = channels_of(x, data_format)
     c_ = c1 // 2
-    y = conv_bn(x, c_, 1, 1, act=act, data_format=data_format, name=f"{name}.cv1")
+    y = conv_bn(x, c_, 1, 1, act=cv1_act, data_format=data_format, name=f"{name}.cv1")
     pools = [y]
     for i in range(3):
         pools.append(
@@ -202,4 +236,7 @@ def sppf(x, c2, k=5, act=True, data_format="channels_last", name="sppf"):
             )(pools[-1])
         )
     y = layers.Concatenate(axis=ax, name=f"{name}.concat")(pools)
-    return conv_bn(y, c2, 1, 1, act=act, data_format=data_format, name=f"{name}.cv2")
+    y = conv_bn(y, c2, 1, 1, act=act, data_format=data_format, name=f"{name}.cv2")
+    if shortcut:
+        y = layers.Add(name=f"{name}.add")([y, x])
+    return y

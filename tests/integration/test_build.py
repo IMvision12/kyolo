@@ -51,24 +51,33 @@ INPUT_SIZE = 256
 STRIDES = (8, 16, 32)
 EXPECTED_CHANNELS = 4 * REG_MAX + NC  # 4 * 16 + 80 == 144
 
+# YOLO26 is natively DFL-free (reg_max == 1), so its head regresses the four box
+# distances directly: 4 * 1 + 80 == 84 channels instead of the usual 144.
+REG_MAX_BY_MODEL = {"yolo26n": 1}
+
+
+def expected_channels(name):
+    return 4 * REG_MAX_BY_MODEL.get(name, REG_MAX) + NC
+
 
 @pytest.mark.parametrize("name", MODEL_NAMES)
 def test_build_and_forward(name):
-    """Each model builds and returns 3 raw feature maps with 144 channels."""
+    """Each model builds and returns 3 raw feature maps with 4*reg_max+nc channels."""
     factory = getattr(models, name)
     model = factory(nc=NC, input_shape=(INPUT_SIZE, INPUT_SIZE, 3), deploy=True)
 
     x = keras.ops.zeros((1, INPUT_SIZE, INPUT_SIZE, 3))
     outputs = model(x)
 
+    channels = expected_channels(name)
     assert isinstance(outputs, list), f"{name}: expected a list of feature maps"
     assert len(outputs) == 3, f"{name}: expected 3 feature maps, got {len(outputs)}"
 
     for feat, stride in zip(outputs, STRIDES):
         shape = tuple(feat.shape)
         assert shape[0] == 1, f"{name}: batch dim should be 1, got {shape}"
-        assert shape[-1] == EXPECTED_CHANNELS, (
-            f"{name}: channel dim should be {EXPECTED_CHANNELS}, got {shape[-1]}"
+        assert shape[-1] == channels, (
+            f"{name}: channel dim should be {channels}, got {shape[-1]}"
         )
         assert shape[1] == INPUT_SIZE // stride, f"{name}: bad H for stride {stride}: {shape}"
         assert shape[2] == INPUT_SIZE // stride, f"{name}: bad W for stride {stride}: {shape}"
@@ -77,7 +86,7 @@ def test_build_and_forward(name):
 @skip_channels_first_on_tf
 @pytest.mark.parametrize("name", MODEL_NAMES)
 def test_build_and_forward_channels_first(name):
-    """Each model builds channels_first and returns (B, 144, H, W) feature maps."""
+    """Each model builds channels_first and returns (B, 4*reg_max+nc, H, W) maps."""
     factory = getattr(models, name)
     model = factory(
         nc=NC, input_shape=(3, INPUT_SIZE, INPUT_SIZE), data_format="channels_first", deploy=True
@@ -87,11 +96,12 @@ def test_build_and_forward_channels_first(name):
     x = keras.ops.zeros((1, 3, INPUT_SIZE, INPUT_SIZE))
     outputs = model(x)
 
+    channels = expected_channels(name)
     assert len(outputs) == 3, f"{name}: expected 3 feature maps, got {len(outputs)}"
     for feat, stride in zip(outputs, STRIDES):
         shape = tuple(feat.shape)
-        assert shape[1] == EXPECTED_CHANNELS, (
-            f"{name}: channels_first channel dim should be {EXPECTED_CHANNELS}, got {shape}"
+        assert shape[1] == channels, (
+            f"{name}: channels_first channel dim should be {channels}, got {shape}"
         )
         assert shape[2] == INPUT_SIZE // stride, f"{name}: bad H for stride {stride}: {shape}"
         assert shape[3] == INPUT_SIZE // stride, f"{name}: bad W for stride {stride}: {shape}"
