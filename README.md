@@ -1,29 +1,51 @@
 # kyolo - YOLO in pure Keras 3
 
-`kyolo` is a pure [Keras 3](https://keras.io) implementation of the YOLO
-object-detection family (YOLOv5, v8, v9, v10, YOLO11, YOLO12, YOLO26).
-Every layer, loss, and pre/post-processing step is written entirely in
-`keras.ops`, so the exact same code runs unchanged on the **TensorFlow**,
-**JAX**, and **PyTorch** backends. It ships with best-effort utilities for
-converting the official PyTorch checkpoints into Keras `.weights.h5` files.
+![Python](https://img.shields.io/badge/python-3.9%2B-blue)
+![Keras 3](https://img.shields.io/badge/Keras-3-D00000)
+![Backends](https://img.shields.io/badge/backends-TensorFlow%20%7C%20JAX%20%7C%20PyTorch-orange)
+![License](https://img.shields.io/badge/code-Apache%202.0-green)
+![Lint](https://img.shields.io/badge/lint-ruff-261230)
+
+`kyolo` is a pure [Keras 3](https://keras.io) reimplementation of the YOLO
+object-detection family (YOLOv5, v8, v9, v10, YOLO11, YOLO12, YOLO26). Every
+layer, loss, and pre/post-processing step is written entirely in `keras.ops`, so
+the **exact same code runs unchanged on the TensorFlow, JAX, and PyTorch
+backends**. It ships with utilities that convert the official PyTorch checkpoints
+into Keras `.weights.h5` files, faithfully enough to reproduce the reference
+outputs.
 
 ![kyolo detections across the YOLO family](assets/model_comparison.png)
 
-<p align="center"><em>Seven kyolo models run on seven images, each converted from
-its official COCO checkpoint and decoded with the one2many head + NMS. Reproduce
-with <code>convert_weights=True</code> (see <a href="#quickstart-inference">Quickstart</a>).</em></p>
+<p align="center"><em>Seven kyolo models, each built from its official COCO
+checkpoint (auto-downloaded and converted) and run on a different image. Decoded
+with the one2many head + NMS. Reproduce with <code>convert_weights=True</code>
+(see <a href="#quickstart-inference">Quickstart</a>).</em></p>
+
+## Highlights
+
+- **One codebase, three backends.** Pure `keras.ops` throughout: models, losses,
+  DFL decode, NMS and letterbox all run on TensorFlow, JAX or PyTorch, CPU or GPU.
+- **7 families, 36 variants.** YOLOv5 / v8 / v9 / v10 / YOLO11 / YOLO12 / YOLO26,
+  each a one-line factory function.
+- **Faithful weight conversion.** Every official COCO checkpoint transfers with
+  **0 unmatched weights** and reproduces the reference PyTorch head outputs to a
+  few times `1e-4` (fp32 rounding).
+- **channels_last and channels_first.** Switch the whole library with a single
+  `keras.config.set_image_data_format(...)` call.
+- **Standard `keras.Model`.** Trainable with `.fit()`, fine-tunable, and
+  serializable with no special machinery.
 
 ## Supported models
 
-| Family   | Variants                     | Detection head                         |
-| -------- | ---------------------------- | -------------------------------------- |
-| YOLOv5   | `n` `s` `m` `l` `x`          | Anchor-free, DFL (NMS)                 |
-| YOLOv8   | `n` `s` `m` `l` `x`          | Anchor-free, DFL (NMS)                 |
-| YOLOv9   | `t` `s` `m` `c` `e`          | Anchor-free, DFL (NMS)                 |
-| YOLOv10  | `n` `s` `m` `b` `l` `x`      | Anchor-free, DFL, **end-to-end (NMS-free)** |
-| YOLO11   | `n` `s` `m` `l` `x`          | Anchor-free, DFL (NMS)                 |
-| YOLO12   | `n` `s` `m` `l` `x`          | Anchor-free, DFL (NMS)                 |
-| YOLO26   | `n` `s` `m` `l` `x`          | Anchor-free, DFL, **end-to-end (NMS-free)** |
+| Family  | Variants                | Backbone                        | Detection head                              |
+| ------- | ----------------------- | ------------------------------- | ------------------------------------------- |
+| YOLOv5  | `n` `s` `m` `l` `x`     | CSP (C3) + SPPF                 | Anchor-free, DFL, NMS                       |
+| YOLOv8  | `n` `s` `m` `l` `x`     | CSP (C2f) + SPPF               | Anchor-free, DFL, NMS                       |
+| YOLOv9  | `t` `s` `m` `c` `e`     | RepNCSPELAN + SPPELAN          | Anchor-free, DFL, NMS                       |
+| YOLOv10 | `n` `s` `m` `b` `l` `x` | C2f / C2fCIB + SCDown + PSA    | Anchor-free, DFL, **end-to-end (NMS-free)** |
+| YOLO11  | `n` `s` `m` `l` `x`     | C3k2 + C2PSA + SPPF            | Anchor-free, DFL, NMS                       |
+| YOLO12  | `n` `s` `m` `l` `x`     | C3k2 + A2C2f (area attention)  | Anchor-free, DFL, NMS                       |
+| YOLO26  | `n` `s` `m` `l` `x`     | C3k2 + C2PSA + SPPF            | Anchor-free, **DFL-free** (`reg_max=1`), **end-to-end (NMS-free)** |
 
 Each variant is a **factory function** named `<family><variant>`, imported
 directly from `kyolo.models` (or `kyolo`):
@@ -33,14 +55,38 @@ from kyolo.models import yolov5n, yolov8m, yolo11s, yolov9c, yolov10n
 model = yolov8m(nc=80)          # -> keras.Model
 ```
 
-`kyolo.models.MODEL_NAMES` lists all 36 factories.
+`kyolo.models.MODEL_NAMES` lists all 36 factories. Regardless of family, a
+model's forward pass returns a **list of 3 raw feature maps** `[P3, P4, P5]`,
+each of shape `(B, Hi, Wi, 4 * reg_max + nc)` in channels-last layout (with
+strides `(8, 16, 32)`). Boxes are decoded from these by `YOLOPostprocessor`.
 
-Regardless of family, a model's forward pass returns a **list of 3 raw feature
-maps** `[P3, P4, P5]`, each of shape `(B, Hi, Wi, 4 * reg_max + nc)` in
-channels-last layout, with `reg_max = 16` and strides `(8, 16, 32)`. Every
-family decodes boxes with a Distribution Focal Loss (DFL) regression head; the
-end-to-end families (v10, v26) are trained to be NMS-free but a standard NMS
-postprocessor is still available for the rest.
+> **On the end-to-end families (v10, v26).** kyolo builds the standard
+> **one2many** detection head, which is decoded with NMS. The official models
+> add a parallel *one2one* head for NMS-free inference; kyolo does not reproduce
+> that head, so decode v10 / v26 with a normal NMS `YOLOPostprocessor` (as in the
+> image above).
+
+## Conversion fidelity
+
+Every model in the image above was built with `convert_weights=True`, which
+downloads the official COCO `.pt`, converts it, and loads it. The table reports,
+for each, the fraction of weights transferred and the **maximum absolute
+difference** between kyolo's raw head outputs and the official ultralytics head
+outputs on an identical input.
+
+| Model     | Image        | Objects | Weights transferred | Max abs diff vs official |
+| --------- | ------------ | :-----: | :-----------------: | :----------------------: |
+| YOLOv5l   | `bus.jpg`    |    5    |    100% (0 misses)  |        `9.7e-05`         |
+| YOLOv8l   | `zidane.jpg` |    3    |    100% (0 misses)  |        `7.5e-05`         |
+| YOLOv9m   | `dog.jpg`    |    3    |    100% (0 misses)  |        `6.1e-04`         |
+| YOLOv10b  | `horses.jpg` |    5    |    100% (0 misses)  |        `9.4e-05`         |
+| YOLO11m   | `person.jpg` |    3    |    100% (0 misses)  |        `1.2e-04`         |
+| YOLO12m   | `giraffe.jpg`|    2    |    100% (0 misses)  |        `5.1e-05`         |
+| YOLO26l   | `eagle.jpg`  |    1    |    100% (0 misses)  |        `6.9e-04`         |
+
+These are fp32 rounding differences, not architectural approximations: all
+variants of every family transfer with 0 misses and match to the same order of
+magnitude.
 
 ## Installation
 
@@ -58,69 +104,46 @@ pip install -e ".[conversion]"  # torch + ultralytics, for weight conversion
 ```
 
 Visualization (`matplotlib` + `pillow`, used by the examples) ships with the
-base install, so a plain `pip install kyolo` is enough to run them.
-
-Select the active backend with the `KERAS_BACKEND` environment variable before
-importing anything:
+base install. Select the active backend with the `KERAS_BACKEND` environment
+variable **before importing anything**:
 
 ```bash
-export KERAS_BACKEND=tensorflow   # or "jax" / "torch"
+export KERAS_BACKEND=jax          # or "tensorflow" / "torch"
 ```
 
 ```python
 import os
-os.environ["KERAS_BACKEND"] = "tensorflow"  # must be set before `import keras`
+os.environ["KERAS_BACKEND"] = "jax"   # must be set before `import keras`
 ```
-
-## Data format (channels_last / channels_first)
-
-Every model, loss and pre/post-processor takes a `data_format` argument. Leaving
-it as the default (`None`) follows the global Keras setting
-`keras.config.image_data_format()`, so one call switches the whole library:
-
-```python
-import keras
-from kyolo.models import yolov8n
-
-keras.config.set_image_data_format("channels_first")
-model = yolov8n(nc=80, input_shape=(3, 640, 640))   # (C, H, W) inputs, (B, C, H, W) feats
-
-# ...or override per call, ignoring the global setting:
-model = yolov8n(nc=80, input_shape=(640, 640, 3), data_format="channels_last")
-```
-
-`input_shape` is `(H, W, C)` for channels_last and `(C, H, W)` for
-channels_first. `YOLOPreprocessor` always accepts channels_last `(H, W, C)`
-images and returns them in the requested layout, so the raw image loading path
-is unchanged.
 
 ## Quickstart: inference
 
 ```python
 import keras
 
-from kyolo.models import yolov8n            # every variant is a factory: yolov5n, yolo11s, ...
+from kyolo.models import yolov8n            # every variant is a factory: yolov5l, yolo11m, ...
 from kyolo.preprocessing import YOLOPreprocessor
 from kyolo.postprocessing import YOLOPostprocessor
 from kyolo.utils import visualize_detections, COCO_CLASS_NAMES
 
-# 1. Build a model (deploy=True fuses reparameterizable branches for inference).
-model = yolov8n(nc=80, input_shape=(640, 640, 3), deploy=True)
-# model = yolov8n(convert_weights=True)      # auto-download + convert official COCO weights
-# model = yolov8n(weights="yolov8n.weights.h5")  # or load a converted checkpoint (see below)
+# 1. Build a model and load official COCO weights (auto-download + convert + cache).
+model = yolov8n(convert_weights=True)                 # needs the "conversion" extra
+# model = yolov8n(weights="yolov8n.weights.h5")       # or load a converted checkpoint
+# model = yolov8n(deploy=True)                         # or random init (architecture only)
 
-# 2. Preprocess: letterbox to a square and (optionally) normalize to [0, 1].
+# 2. Preprocess: letterbox to a square and normalize to [0, 1].
 preprocessor = YOLOPreprocessor(image_size=640, normalize=True, letterbox=True)
-batch = preprocessor.from_files("assets/bird.png")
+batch = preprocessor.from_files("assets/samples/bus.jpg")
 # batch == {"images": (B, 640, 640, 3), "ratio": (B, 2), "pad": (B, 2)}
 
 # 3. Forward pass -> list of 3 raw feature maps [P3, P4, P5].
 raw_feats = model(batch["images"])
 
 # 4. Postprocess -> (B, max_detections, 6) = [x1, y1, x2, y2, score, class_id].
+#    Read reg_max / end_to_end off the model so the same code works for every family.
 postprocessor = YOLOPostprocessor(
-    nc=80, reg_max=16, strides=(8, 16, 32),
-    conf_threshold=0.25, iou_threshold=0.7, max_detections=300,
+    nc=80, reg_max=model.reg_max, strides=model.strides,
+    conf_threshold=0.25, iou_threshold=0.45, max_detections=300,
 )
 detections = postprocessor(raw_feats)
 
@@ -128,20 +151,26 @@ detections = postprocessor(raw_feats)
 image = keras.ops.convert_to_numpy(batch["images"])[0]
 dets = keras.ops.convert_to_numpy(detections)[0]
 visualize_detections(image, dets, class_names=COCO_CLASS_NAMES,
-                     save_path="assets/inference_result.png")
+                     save_path="result.png")
 ```
 
-A runnable version lives in [`examples/inference.py`](examples/inference.py).
+A runnable version lives in [`examples/inference.py`](examples/inference.py):
+
+```bash
+python examples/inference.py --model yolov8l --weights yolov8l.weights.h5 \
+    --image assets/samples/zidane.jpg
+```
 
 ## Training / fine-tuning
 
 `kyolo.training.YOLODetector` is a `keras.Model` subclass that plugs into
 `.fit()`. Datasets yield `(images, targets)` tuples where `targets` is
-`{"boxes", "labels", "mask"}` (boxes are xyxy pixels, labels are ints, mask
-marks real vs. padded boxes). `detect.detect(...)` runs the full decode + NMS
+`{"boxes", "labels", "mask"}` (boxes are xyxy pixels, labels are ints, `mask`
+marks real vs. padded boxes). `detector.detect(...)` runs the full decode + NMS
 pipeline in one call:
 
 ```python
+import re
 import keras
 
 from kyolo.models import yolov8n
@@ -150,26 +179,26 @@ from kyolo.training import YOLODetector
 
 nc = 80
 model = yolov8n(nc=nc)
+# Start from the pretrained COCO weights to fine-tune:
+# model = yolov8n(nc=80, convert_weights=True)
 
-# Fine-tuning: build with the pretrained COCO backbone, then swap the head for
-# your class count by fine-tuning. To start from converted weights, build the
-# nc=80 model with convert_weights=True (or weights="yolov8n.weights.h5").
-# model = yolov8n(convert_weights=True)
-
-# Freeze the backbone so only the neck + detection head train:
+# Optional: freeze the backbone (stages model.0 - model.9) and train only the
+# neck + head. Layer names mirror the module index, e.g. "model-6-cv1-conv".
 for layer in model.layers:
-    if layer.name.startswith("backbone"):
+    m = re.match(r"model-(\d+)", layer.name)
+    if m and int(m.group(1)) <= 9:
         layer.trainable = False
 
+# The detector infers nc / reg_max / strides / end_to_end from the model.
 loss = YOLODetectionLoss(nc=nc, reg_max=16, strides=(8, 16, 32))
-detector = YOLODetector(model, loss=loss, nc=nc, reg_max=16)
+detector = YOLODetector(model, loss=loss)
 detector.compile(optimizer=keras.optimizers.Adam(1e-3))
 
 # `dataset` yields (images, {"boxes", "labels", "mask"}) tuples.
 detector.fit(dataset, epochs=1, steps_per_epoch=2)
 
-# Convenience: run the full detect -> NMS pipeline in one call.
-detections = detector.detect(images, conf=0.25, iou=0.7)
+# Convenience: run the full model + decode + NMS pipeline in one call.
+detections = detector.detect(images, conf_threshold=0.25, iou_threshold=0.45)
 ```
 
 A runnable synthetic-data version lives in [`examples/train.py`](examples/train.py).
@@ -185,22 +214,22 @@ converts them from source on demand.
 Every variant factory takes `convert_weights` and `weights` arguments:
 
 ```python
-from kyolo.models import yolov8n
+from kyolo.models import yolo11m
 
 # Auto-download the official COCO ".pt", convert it, cache and load it.
 # Needs the "conversion" extra (torch + ultralytics) and nc=80.
-model = yolov8n(convert_weights=True)
+model = yolo11m(convert_weights=True)
 
 # Load your own already-converted Keras weights.
-model = yolov8n(weights="yolov8n.weights.h5")
+model = yolo11m(weights="yolo11m.weights.h5")
 
 # Convert a PyTorch checkpoint you supply (path or http URL) on load.
-model = yolov8n(nc=80, weights="yolov8n.pt")
+model = yolo11m(nc=80, weights="yolo11m.pt")
 ```
 
 `convert_weights=True` caches the converted `.weights.h5` under `~/.cache/kyolo`
 (override with `cache_dir=` or the `KYOLO_CACHE` env var), so subsequent calls
-load instantly. Auto-download covers the ultralytics families (v5, v8, v9, v10,
+load instantly. Auto-download covers all ultralytics families (v5, v8, v9, v10,
 11, 12, 26).
 
 ### From the command line
@@ -222,7 +251,29 @@ which pulls in `torch` and `ultralytics`). The programmatic entry points are
 
 > Conversion is **best-effort**: layer-name and tensor-layout mappings are
 > maintained by hand, so always validate a converted model's outputs against the
-> reference PyTorch implementation before trusting it.
+> reference PyTorch implementation before trusting it (the
+> [fidelity table](#conversion-fidelity) above is exactly this check).
+
+## Data format (channels_last / channels_first)
+
+Every model, loss and pre/post-processor takes a `data_format` argument. Leaving
+it as the default (`None`) follows the global Keras setting
+`keras.config.image_data_format()`, so one call switches the whole library:
+
+```python
+import keras
+from kyolo.models import yolov8n
+
+keras.config.set_image_data_format("channels_first")
+model = yolov8n(nc=80, input_shape=(3, 640, 640))   # (C, H, W) inputs, (B, C, H, W) feats
+
+# ...or override per call, ignoring the global setting:
+model = yolov8n(nc=80, input_shape=(640, 640, 3), data_format="channels_last")
+```
+
+`input_shape` is `(H, W, C)` for channels_last and `(C, H, W)` for
+channels_first. `YOLOPreprocessor` always accepts channels_last `(H, W, C)`
+images and returns them in the requested layout.
 
 ## License
 
