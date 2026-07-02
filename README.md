@@ -7,6 +7,12 @@ Every layer, loss, and pre/post-processing step is written entirely in
 **JAX**, and **PyTorch** backends. It ships with best-effort utilities for
 converting the official PyTorch checkpoints into Keras `.weights.h5` files.
 
+![kyolo detections across the YOLO family](assets/model_comparison.png)
+
+<p align="center"><em>Seven kyolo models run on seven images, each converted from
+its official COCO checkpoint and decoded with the one2many head + NMS. Reproduce
+with <code>convert_weights=True</code> (see <a href="#quickstart-inference">Quickstart</a>).</em></p>
+
 ## Supported models
 
 | Family   | Variants                     | Detection head                         |

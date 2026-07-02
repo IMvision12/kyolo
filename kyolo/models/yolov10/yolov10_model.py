@@ -11,13 +11,12 @@ from ...layers import c2f, c2f_cib, conv_bn, psa, scdown, sppf
 from ...layers.common import concat_axis, resolve_data_format
 from ...layers.knames import layers
 from ..base import finalize_detector, image_input, scale_channels, scale_depth
-from .config import YOLOV10_CONFIG
+from .config import YOLOV10_CIB_SLOTS, YOLOV10_CONFIG
 
 __all__ = ["YOLOV10_CONFIG", "build_yolov10", "YOLOv10"]
 
 
-# variant: (depth, width, max_channels, deep_cib)
-#   deep_cib -> use C2fCIB at backbone stage 8 (larger variants)
+# variant: (depth, width, max_channels)
 def build_yolov10(
     variant="n",
     nc=80,
@@ -27,9 +26,14 @@ def build_yolov10(
     reg_max=16,
     **kwargs,
 ):
-    d, w, mc, deep_cib = YOLOV10_CONFIG[variant]
+    d, w, mc = YOLOV10_CONFIG[variant]
     data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
+
+    # Per-scale C2fCIB placement + large-kernel (RepVGGDW) flag, from the
+    # official yolov10 yamls. Every C2fCIB in those yamls uses shortcut=True.
+    cib_slots = YOLOV10_CIB_SLOTS[variant]
+    cib_lk = variant in ("n", "s")
 
     def ch(c):
         return scale_channels(c, w, max_channels=mc)
@@ -45,6 +49,13 @@ def build_yolov10(
     def cat(xs, name):
         return layers.Concatenate(axis=ax, name=name)(xs)
 
+    def stage(x, c2, n, idx, c2f_shortcut):
+        """C2fCIB when this stage is a CIB slot for the variant, else plain C2f."""
+        name = f"model.{idx}"
+        if idx in cib_slots:
+            return c2f_cib(x, c2, n, shortcut=True, lk=cib_lk, data_format=data_format, name=name)
+        return c2f(x, c2, n, shortcut=c2f_shortcut, data_format=data_format, name=name)
+
     inp = image_input(input_shape, data_format)
 
     # --- backbone ---
@@ -55,31 +66,23 @@ def build_yolov10(
     x = c2f(x, ch(256), nd(6), shortcut=True, data_format=data_format, name="model.4")
     p3 = x
     x = scdown(x, ch(512), 3, 2, data_format=data_format, name="model.5")
-    x = c2f(x, ch(512), nd(6), shortcut=True, data_format=data_format, name="model.6")
+    x = stage(x, ch(512), nd(6), 6, True)
     p4 = x
     x = scdown(x, ch(1024), 3, 2, data_format=data_format, name="model.7")
-    if deep_cib:
-        x = c2f_cib(x, ch(1024), nd(3), shortcut=True, data_format=data_format, name="model.8")
-    else:
-        x = c2f(x, ch(1024), nd(3), shortcut=True, data_format=data_format, name="model.8")
+    x = stage(x, ch(1024), nd(3), 8, True)
     x = sppf(x, ch(1024), 5, data_format=data_format, name="model.9")
     x = psa(x, ch(1024), data_format=data_format, name="model.10")
     p5 = x
 
     # --- neck ---
     t = cat([up(p5, "up0"), p4], "cat0")
-    p4n = c2f(t, ch(512), nd(3), shortcut=False, data_format=data_format, name="model.13")
+    p4n = stage(t, ch(512), nd(3), 13, False)
     t = cat([up(p4n, "up1"), p3], "cat1")
-    p3o = c2f(t, ch(256), nd(3), shortcut=False, data_format=data_format, name="model.16")
+    p3o = stage(t, ch(256), nd(3), 16, False)
     t = cat([conv_bn(p3o, ch(256), 3, 2, data_format=data_format, name="model.17"), p4n], "cat2")
-    p4o = c2f(t, ch(512), nd(3), shortcut=False, data_format=data_format, name="model.19")
+    p4o = stage(t, ch(512), nd(3), 19, False)
     t = cat([scdown(p4o, ch(512), 3, 2, data_format=data_format, name="model.20"), p5], "cat3")
-    # The P5 C2fCIB uses the large-kernel (RepVGGDW) CIB in the n/s scales only,
-    # matching the Ultralytics yolov10 yaml (`C2fCIB [1024, True, True]`).
-    p5_lk = variant in ("n", "s")
-    p5o = c2f_cib(
-        t, ch(1024), nd(3), shortcut=True, lk=p5_lk, data_format=data_format, name="model.22"
-    )
+    p5o = stage(t, ch(1024), nd(3), 22, True)
 
     return finalize_detector(
         inp,
