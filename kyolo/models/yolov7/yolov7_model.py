@@ -7,10 +7,9 @@ heads are replaced by the shared anchor-free DFL head used across kyolo.
 
 from __future__ import annotations
 
-from keras import layers
-
 from ...layers import conv_bn, elan, sppcspc
-from ...layers.common import concat_axis
+from ...layers.common import concat_axis, resolve_data_format
+from ...layers.knames import layers
 from ..base import finalize_detector, image_input, scale_channels
 from .config import YOLOV7_CONFIG
 
@@ -22,7 +21,7 @@ def build_yolov7(
     variant="",
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     reg_max=16,
     **kwargs,
@@ -30,6 +29,7 @@ def build_yolov7(
     if variant not in YOLOV7_CONFIG:
         raise KeyError(f"unknown YOLOv7 variant {variant!r}; choose from {list(YOLOV7_CONFIG)}")
     w, depth = YOLOV7_CONFIG[variant]
+    data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
     def ch(c):
@@ -99,8 +99,6 @@ def build_yolov7(
     )
 
 
-def YOLOv7(
-    variant="", nc=80, input_shape=(640, 640, 3), data_format="channels_last", deploy=True, **kwargs
-):
+def YOLOv7(variant="", nc=80, input_shape=(640, 640, 3), data_format=None, deploy=True, **kwargs):
     """Factory for a YOLOv7 detector (variant in ``{'', 'tiny', 'x'}``)."""
     return build_yolov7(variant, nc, input_shape, data_format, deploy, **kwargs)

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from keras import layers
-
 from ...layers import c2f, conv_bn, sppf
-from ...layers.common import concat_axis
+from ...layers.common import concat_axis, resolve_data_format
+from ...layers.knames import layers
 from ..base import finalize_detector, image_input, scale_channels, scale_depth
 from .config import YOLOV8_CONFIG
 
@@ -17,12 +16,13 @@ def build_yolov8(
     variant="n",
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     reg_max=16,
     **kwargs,
 ):
     d, w, mc = YOLOV8_CONFIG[variant]
+    data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
     def ch(c):
@@ -80,7 +80,7 @@ def YOLOv8(
     variant="n",
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     **kwargs,
 ):

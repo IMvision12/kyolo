@@ -7,10 +7,9 @@ original v9 training are not built. Channel widths are scaled per variant.
 
 from __future__ import annotations
 
-from keras import layers
-
 from ...layers import adown, conv_bn, rep_ncspelan4, sppelan
-from ...layers.common import concat_axis
+from ...layers.common import concat_axis, resolve_data_format
+from ...layers.knames import layers
 from ..base import finalize_detector, image_input, scale_channels
 from .config import YOLOV9_CONFIG
 
@@ -22,12 +21,13 @@ def build_yolov9(
     variant="c",
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     reg_max=16,
     **kwargs,
 ):
     w = YOLOV9_CONFIG[variant]
+    data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
     def ch(c):
@@ -87,7 +87,7 @@ def YOLOv9(
     variant="c",
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     **kwargs,
 ):

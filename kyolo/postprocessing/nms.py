@@ -22,11 +22,13 @@ def _iou_one_to_many(a, b, eps=1e-7):
     y1 = ops.maximum(a[..., 1], b[..., 1])
     x2 = ops.minimum(a[..., 2], b[..., 2])
     y2 = ops.minimum(a[..., 3], b[..., 3])
-    iw = ops.clip(x2 - x1, 0.0, None)
-    ih = ops.clip(y2 - y1, 0.0, None)
+    # Lower-bound-only clamp via maximum: ops.clip with a None bound is not
+    # portable across backends (fails on TensorFlow and PyTorch).
+    iw = ops.maximum(x2 - x1, 0.0)
+    ih = ops.maximum(y2 - y1, 0.0)
     inter = iw * ih
-    area_a = ops.clip(a[..., 2] - a[..., 0], 0.0, None) * ops.clip(a[..., 3] - a[..., 1], 0.0, None)
-    area_b = ops.clip(b[..., 2] - b[..., 0], 0.0, None) * ops.clip(b[..., 3] - b[..., 1], 0.0, None)
+    area_a = ops.maximum(a[..., 2] - a[..., 0], 0.0) * ops.maximum(a[..., 3] - a[..., 1], 0.0)
+    area_b = ops.maximum(b[..., 2] - b[..., 0], 0.0) * ops.maximum(b[..., 3] - b[..., 1], 0.0)
     return inter / (area_a + area_b - inter + eps)
 
 

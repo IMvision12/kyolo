@@ -15,9 +15,10 @@ Every reparameterizable block supports a ``deploy`` flag:
 
 from __future__ import annotations
 
-from keras import layers, ops
+from keras import ops
 
 from .common import act_layer, autopad, channels_of, concat_axis, conv_bn
+from .knames import layers
 
 __all__ = [
     "rep_conv",

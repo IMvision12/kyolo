@@ -19,9 +19,10 @@ from __future__ import annotations
 import math
 
 import keras
-from keras import layers
 
 from ..heads.detect import detect_head
+from ..layers.common import resolve_data_format
+from ..layers.knames import kname, layers
 
 __all__ = [
     "make_divisible",
@@ -49,8 +50,9 @@ def scale_depth(n, depth):
     return max(round(n * depth), 1)
 
 
-def image_input(input_shape=(640, 640, 3), data_format="channels_last", name="images"):
+def image_input(input_shape=(640, 640, 3), data_format=None, name="images"):
     """Create the image ``Input`` tensor for the given shape / data format."""
+    data_format = resolve_data_format(data_format)
     if input_shape is None:
         input_shape = (640, 640, 3)
     if len(input_shape) != 3:
@@ -78,7 +80,7 @@ def finalize_detector(
     nc=80,
     reg_max=16,
     cls_dw=False,
-    data_format="channels_last",
+    data_format=None,
     name="kyolo",
     head_name="head",
     strides=(8, 16, 32),
@@ -93,6 +95,7 @@ def finalize_detector(
     weight mapping works for a whole family). ``end_to_end`` marks NMS-free
     models (YOLOv10 / YOLO26).
     """
+    data_format = resolve_data_format(data_format)
     outputs = detect_head(
         feats,
         nc=nc,
@@ -101,7 +104,7 @@ def finalize_detector(
         data_format=data_format,
         name=head_name,
     )
-    model = keras.Model(inputs=inputs, outputs=outputs, name=name)
+    model = keras.Model(inputs=inputs, outputs=outputs, name=kname(name))
     # metadata (plain python attrs; safe on a functional model)
     model.nc = nc
     model.reg_max = reg_max

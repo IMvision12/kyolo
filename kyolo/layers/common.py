@@ -13,7 +13,9 @@ weight-conversion mappings in :mod:`kyolo.conversion` far simpler.
 
 from __future__ import annotations
 
-from keras import layers
+import keras
+
+from .knames import layers
 
 __all__ = [
     "autopad",
@@ -22,7 +24,26 @@ __all__ = [
     "dw_conv",
     "concat_axis",
     "channels_of",
+    "resolve_data_format",
 ]
+
+
+def resolve_data_format(data_format=None):
+    """Resolve a ``data_format``, defaulting to the global Keras config.
+
+    Passing ``None`` (the kyolo default) picks up
+    ``keras.config.image_data_format()``, so setting
+    ``keras.config.set_image_data_format("channels_first")`` once switches every
+    model, loss and pre/post-processor to channels-first. An explicit
+    ``"channels_last"`` / ``"channels_first"`` always wins.
+    """
+    if data_format is None:
+        return keras.config.image_data_format()
+    if data_format not in ("channels_last", "channels_first"):
+        raise ValueError(
+            f"data_format must be 'channels_last', 'channels_first' or None; got {data_format!r}."
+        )
+    return data_format
 
 
 def channels_of(tensor, data_format="channels_last"):

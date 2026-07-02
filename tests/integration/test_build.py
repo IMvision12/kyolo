@@ -26,6 +26,14 @@ pytestmark = pytest.mark.skipif(
     reason=f"keras backend / kyolo.models unavailable: {_IMPORT_ERROR}",
 )
 
+# TensorFlow only supports channels_first (NCHW) conv2d on a GPU; on the CPU
+# runners used in CI these builds raise, so skip channels_first tests there.
+_IS_TENSORFLOW = keras is not None and keras.backend.backend() == "tensorflow"
+skip_channels_first_on_tf = pytest.mark.skipif(
+    _IS_TENSORFLOW,
+    reason="channels_first conv2d requires a GPU on the TensorFlow backend",
+)
+
 # A representative small variant factory from every family.
 MODEL_NAMES = [
     "yolov5n",
@@ -66,3 +74,46 @@ def test_build_and_forward(name):
         )
         assert shape[1] == INPUT_SIZE // stride, f"{name}: bad H for stride {stride}: {shape}"
         assert shape[2] == INPUT_SIZE // stride, f"{name}: bad W for stride {stride}: {shape}"
+
+
+@skip_channels_first_on_tf
+@pytest.mark.parametrize("name", MODEL_NAMES)
+def test_build_and_forward_channels_first(name):
+    """Each model builds channels_first and returns (B, 144, H, W) feature maps."""
+    factory = getattr(models, name)
+    model = factory(
+        nc=NC, input_shape=(3, INPUT_SIZE, INPUT_SIZE), data_format="channels_first", deploy=True
+    )
+    assert model.data_format == "channels_first"
+
+    x = keras.ops.zeros((1, 3, INPUT_SIZE, INPUT_SIZE))
+    outputs = model(x)
+
+    assert len(outputs) == 3, f"{name}: expected 3 feature maps, got {len(outputs)}"
+    for feat, stride in zip(outputs, STRIDES):
+        shape = tuple(feat.shape)
+        assert shape[1] == EXPECTED_CHANNELS, (
+            f"{name}: channels_first channel dim should be {EXPECTED_CHANNELS}, got {shape}"
+        )
+        assert shape[2] == INPUT_SIZE // stride, f"{name}: bad H for stride {stride}: {shape}"
+        assert shape[3] == INPUT_SIZE // stride, f"{name}: bad W for stride {stride}: {shape}"
+
+
+@skip_channels_first_on_tf
+def test_data_format_defaults_to_global_config():
+    """A model built with no data_format follows keras.config.image_data_format().
+
+    Skipped on the TensorFlow backend because the channels_first half builds an
+    NCHW graph, which TF only supports on a GPU.
+    """
+    original = keras.config.image_data_format()
+    try:
+        keras.config.set_image_data_format("channels_first")
+        model = models.yolov8n(nc=NC, input_shape=(3, INPUT_SIZE, INPUT_SIZE))
+        assert model.data_format == "channels_first"
+
+        keras.config.set_image_data_format("channels_last")
+        model = models.yolov8n(nc=NC, input_shape=(INPUT_SIZE, INPUT_SIZE, 3))
+        assert model.data_format == "channels_last"
+    finally:
+        keras.config.set_image_data_format(original)

@@ -8,10 +8,9 @@ plain RepBlocks.
 
 from __future__ import annotations
 
-from keras import layers
-
 from ...layers import bepc3, conv_bn, rep_block, rep_conv, sppf
-from ...layers.common import concat_axis
+from ...layers.common import concat_axis, resolve_data_format
+from ...layers.knames import layers
 from ..base import finalize_detector, image_input, scale_channels, scale_depth
 from .config import YOLOV6_CONFIG
 
@@ -23,12 +22,13 @@ def build_yolov6(
     variant="n",
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     reg_max=16,
     **kwargs,
 ):
     d, w, use_csp = YOLOV6_CONFIG[variant]
+    data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
     def ch(c):
@@ -93,7 +93,7 @@ def YOLOv6(
     variant="n",
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     **kwargs,
 ):

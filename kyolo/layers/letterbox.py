@@ -84,8 +84,14 @@ class Letterbox(keras.layers.Layer):
         dw_half = ops.cast(dw, "float32") / 2.0
         dh_half = ops.cast(dh, "float32") / 2.0
 
+        # Letterbox always works on channels_last (H, W, C) tensors; pin the
+        # resize data_format so it ignores a channels_first global Keras config.
         resized = ops.image.resize(
-            inputs, size=[new_h, new_w], interpolation="bilinear", antialias=False
+            inputs,
+            size=[new_h, new_w],
+            interpolation="bilinear",
+            antialias=False,
+            data_format="channels_last",
         )
 
         top = ops.maximum(ops.cast(ops.round(dh_half - 0.1), "int32"), 0)

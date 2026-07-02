@@ -42,7 +42,10 @@ class YOLODetector(keras.Model):
             end_to_end if end_to_end is not None else getattr(model, "end_to_end", False)
         )
         self.loss_fn = loss or YOLODetectionLoss(
-            nc=self.nc, reg_max=self.reg_max, strides=self.strides
+            nc=self.nc,
+            reg_max=self.reg_max,
+            strides=self.strides,
+            data_format=getattr(model, "data_format", None),
         )
 
         self._box = keras.metrics.Mean(name="box_loss")
@@ -97,7 +100,7 @@ class YOLODetector(keras.Model):
                 iou_threshold=iou_threshold,
                 max_detections=max_detections,
                 end_to_end=self.end_to_end,
-                data_format=getattr(self.body, "data_format", "channels_last"),
+                data_format=getattr(self.body, "data_format", None),
             )
         feats = self.body(images, training=False)
         return self._postprocessor(feats)

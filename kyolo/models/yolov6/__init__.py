@@ -9,7 +9,7 @@ from .yolov6_model import YOLOv6, build_yolov6
 def yolov6n(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -22,8 +22,10 @@ def yolov6n(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
@@ -59,7 +61,7 @@ def yolov6n(
 def yolov6s(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -72,8 +74,10 @@ def yolov6s(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
@@ -109,7 +113,7 @@ def yolov6s(
 def yolov6m(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -122,8 +126,10 @@ def yolov6m(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
@@ -159,7 +165,7 @@ def yolov6m(
 def yolov6l(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -172,8 +178,10 @@ def yolov6l(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http

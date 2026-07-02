@@ -16,12 +16,14 @@ Two transfer strategies are provided:
     only needs the *counts* and *shapes* to agree, which it validates loudly.
 
 ``transfer_torch_to_keras`` (method ``"name"``, best-effort)
-    Derives a candidate Torch key for every Keras variable from its dotted
-    ``path`` (e.g. ``model.0.conv/kernel`` -> ``model.0.conv.weight``) and looks
-    it up directly. This is convenient when the two graphs are structurally
-    identical, but the derived names can drift from a specific checkpoint's
-    layout (the detection head in particular), so it may need per-model mapping
-    tuning. Prefer ``"order"`` unless you have a reason not to.
+    Derives a candidate Torch key for every Keras variable from its ``path``
+    (e.g. ``model-0-conv/kernel`` -> ``model.0.conv.weight``) and looks it up
+    directly. Keras layer names are hyphenated for torch-backend safety (see
+    :mod:`kyolo.layers.knames`), so the separators are mapped back to ``.``.
+    This is convenient when the two graphs are structurally identical, but the
+    derived names can drift from a specific checkpoint's layout (the detection
+    head in particular), so it may need per-model mapping tuning. Prefer
+    ``"order"`` unless you have a reason not to.
 
 Layout conventions handled here
 -------------------------------
@@ -292,14 +294,14 @@ def transfer_torch_to_keras(
 ) -> Dict[str, object]:
     """Name-driven transfer: derive each Torch key from the Keras variable path.
 
-    For a variable whose path is ``model.0.conv/kernel`` this builds the
-    candidate key ``model.0.conv.weight`` (via the leaf-suffix rules
-    ``kernel->weight``, ``gamma->weight``, ``beta->bias``,
-    ``moving_mean->running_mean``, ``moving_variance->running_var``,
-    ``bias->bias``) and then applies every ``old -> new`` substring replacement
-    in ``name_mapping``, in order. If the resulting key exists in
-    ``torch_state`` the value is transposed to the Keras layout and assigned;
-    otherwise the variable is recorded as a miss.
+    For a variable whose path is ``model-0-conv/kernel`` this recovers the
+    dotted layer path (``-`` -> ``.``) and builds the candidate key
+    ``model.0.conv.weight`` (via the leaf-suffix rules ``kernel->weight``,
+    ``gamma->weight``, ``beta->bias``, ``moving_mean->running_mean``,
+    ``moving_variance->running_var``, ``bias->bias``) and then applies every
+    ``old -> new`` substring replacement in ``name_mapping``, in order. If the
+    resulting key exists in ``torch_state`` the value is transposed to the Keras
+    layout and assigned; otherwise the variable is recorded as a miss.
 
     This path is best-effort. The dotted :mod:`kyolo` naming mirrors the
     reference modules, but individual checkpoints (especially detection heads)
@@ -333,6 +335,9 @@ def transfer_torch_to_keras(
             layer_path, leaf = path.rsplit("/", 1)
         else:
             layer_path, leaf = path, _leaf(path)
+        # Keras layer names are torch-safe (dots -> hyphens, see
+        # kyolo.layers.knames); undo that to recover the dotted PyTorch key.
+        layer_path = layer_path.replace("-", ".")
         suffix = _SUFFIX_MAP.get(leaf, leaf)
         torch_key = f"{layer_path}.{suffix}"
         for old, new in name_mapping.items():

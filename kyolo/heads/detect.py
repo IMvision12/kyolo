@@ -17,9 +17,9 @@ from __future__ import annotations
 import math
 
 import keras
-from keras import layers
 
-from ..layers.common import channels_of, concat_axis, conv_bn, dw_conv
+from ..layers.common import channels_of, concat_axis, conv_bn, dw_conv, resolve_data_format
+from ..layers.knames import layers
 
 __all__ = ["detect_head"]
 
@@ -32,7 +32,7 @@ def detect_head(
     nc=80,
     reg_max=16,
     cls_dw=False,
-    data_format="channels_last",
+    data_format=None,
     name="detect",
 ):
     """Build the decoupled head over a list of pyramid feature maps.
@@ -50,6 +50,7 @@ def detect_head(
     Returns:
         list of ``(B, H, W, 4*reg_max + nc)`` (or channels_first) tensors.
     """
+    data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
     ch = [channels_of(f, data_format) for f in feats]
     c2 = max(16, ch[0] // 4, reg_max * 4)

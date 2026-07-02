@@ -69,6 +69,28 @@ import os
 os.environ["KERAS_BACKEND"] = "tensorflow"  # must be set before `import keras`
 ```
 
+## Data format (channels_last / channels_first)
+
+Every model, loss and pre/post-processor takes a `data_format` argument. Leaving
+it as the default (`None`) follows the global Keras setting
+`keras.config.image_data_format()`, so one call switches the whole library:
+
+```python
+import keras
+from kyolo.models import yolov8n
+
+keras.config.set_image_data_format("channels_first")
+model = yolov8n(nc=80, input_shape=(3, 640, 640))   # (C, H, W) inputs, (B, C, H, W) feats
+
+# ...or override per call, ignoring the global setting:
+model = yolov8n(nc=80, input_shape=(640, 640, 3), data_format="channels_last")
+```
+
+`input_shape` is `(H, W, C)` for channels_last and `(C, H, W)` for
+channels_first. `YOLOPreprocessor` always accepts channels_last `(H, W, C)`
+images and returns them in the requested layout, so the raw image loading path
+is unchanged.
+
 ## Quickstart: inference
 
 ```python

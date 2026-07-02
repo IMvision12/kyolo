@@ -7,6 +7,7 @@ from typing import List, Union
 import keras
 from keras import ops
 
+from ..layers.common import resolve_data_format
 from ..layers.letterbox import Letterbox
 
 __all__ = ["YOLOPreprocessor"]
@@ -21,8 +22,9 @@ class YOLOPreprocessor(keras.layers.Layer):
 
         {"images": (B, S, S, 3), "ratio": (B, 2), "pad": (B, 2)}
 
-    ``ratio`` and ``pad`` let you map detections back to original coordinates:
-    ``x_orig = (x_letterboxed - pad_x) / ratio``.
+    ``images`` is ``(B, S, S, 3)`` for channels_last or ``(B, 3, S, S)`` for
+    channels_first. ``ratio`` and ``pad`` let you map detections back to
+    original coordinates: ``x_orig = (x_letterboxed - pad_x) / ratio``.
 
     Args:
         image_size: square target side ``S``.
@@ -33,6 +35,10 @@ class YOLOPreprocessor(keras.layers.Layer):
         stride: stride for ``auto`` padding.
         pad_color: RGB pad colour (0-255).
         mean / std: optional per-channel normalization (in [0, 1] scale).
+        data_format: layout of the returned ``images`` ("channels_last",
+            "channels_first", or None for the global Keras config). Inputs are
+            always accepted as channels_last (H, W, C); only the output layout
+            changes.
     """
 
     def __init__(
@@ -45,6 +51,7 @@ class YOLOPreprocessor(keras.layers.Layer):
         pad_color=(114, 114, 114),
         mean=None,
         std=None,
+        data_format=None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -56,6 +63,7 @@ class YOLOPreprocessor(keras.layers.Layer):
         self.pad_color = tuple(pad_color)
         self.mean = mean
         self.std = std
+        self.data_format = resolve_data_format(data_format)
         self._mean = ops.convert_to_tensor(mean if mean is not None else [0.0, 0.0, 0.0], "float32")
         self._std = ops.convert_to_tensor(std if std is not None else [1.0, 1.0, 1.0], "float32")
         if self.do_letterbox:
@@ -88,14 +96,22 @@ class YOLOPreprocessor(keras.layers.Layer):
             x, ratio, pad = self.lb(x)
         else:
             b = ops.shape(x)[0]
+            # Process in channels_last regardless of the global config; the
+            # output is transposed to self.data_format at the end of call().
             x = ops.image.resize(
-                x, size=[self.image_size, self.image_size], interpolation="bilinear"
+                x,
+                size=[self.image_size, self.image_size],
+                interpolation="bilinear",
+                data_format="channels_last",
             )
             ratio = ops.ones((b, 2), dtype="float32")
             pad = ops.zeros((b, 2), dtype="float32")
 
         if self.normalize and (self.mean is not None or self.std is not None):
             x = (x - self._mean) / self._std
+
+        if self.data_format == "channels_first":
+            x = ops.transpose(x, (0, 3, 1, 2))  # (B,H,W,C) -> (B,C,H,W)
 
         return {"images": x, "ratio": ratio, "pad": pad}
 
@@ -126,6 +142,7 @@ class YOLOPreprocessor(keras.layers.Layer):
                 "pad_color": self.pad_color,
                 "mean": self.mean,
                 "std": self.std,
+                "data_format": self.data_format,
             }
         )
         return config

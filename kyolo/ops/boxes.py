@@ -54,14 +54,16 @@ def bbox_iou(box1, box2, xywh=False, giou=False, diou=False, ciou=False, eps=1e-
     b1x1, b1y1, b1x2, b1y2 = box1[..., 0], box1[..., 1], box1[..., 2], box1[..., 3]
     b2x1, b2y1, b2x2, b2y2 = box2[..., 0], box2[..., 1], box2[..., 2], box2[..., 3]
 
-    inter_w = ops.clip(ops.minimum(b1x2, b2x2) - ops.maximum(b1x1, b2x1), 0.0, None)
-    inter_h = ops.clip(ops.minimum(b1y2, b2y2) - ops.maximum(b1y1, b2y1), 0.0, None)
+    # Lower-bound-only clamp via maximum: ops.clip with a None bound is not
+    # portable across backends (fails on TensorFlow and PyTorch).
+    inter_w = ops.maximum(ops.minimum(b1x2, b2x2) - ops.maximum(b1x1, b2x1), 0.0)
+    inter_h = ops.maximum(ops.minimum(b1y2, b2y2) - ops.maximum(b1y1, b2y1), 0.0)
     inter = inter_w * inter_h
 
-    w1 = ops.clip(b1x2 - b1x1, 0.0, None)
-    h1 = ops.clip(b1y2 - b1y1, 0.0, None)
-    w2 = ops.clip(b2x2 - b2x1, 0.0, None)
-    h2 = ops.clip(b2y2 - b2y1, 0.0, None)
+    w1 = ops.maximum(b1x2 - b1x1, 0.0)
+    h1 = ops.maximum(b1y2 - b1y1, 0.0)
+    w2 = ops.maximum(b2x2 - b2x1, 0.0)
+    h2 = ops.maximum(b2y2 - b2y1, 0.0)
     union = w1 * h1 + w2 * h2 - inter + eps
     iou = inter / union
 
@@ -103,11 +105,11 @@ def pairwise_iou(boxes1, boxes2, eps=1e-7):
     area2 = box_area(boxes2)  # (M,)
     b1 = ops.expand_dims(boxes1, 1)  # (N,1,4)
     b2 = ops.expand_dims(boxes2, 0)  # (1,M,4)
-    inter_w = ops.clip(
-        ops.minimum(b1[..., 2], b2[..., 2]) - ops.maximum(b1[..., 0], b2[..., 0]), 0.0, None
+    inter_w = ops.maximum(
+        ops.minimum(b1[..., 2], b2[..., 2]) - ops.maximum(b1[..., 0], b2[..., 0]), 0.0
     )
-    inter_h = ops.clip(
-        ops.minimum(b1[..., 3], b2[..., 3]) - ops.maximum(b1[..., 1], b2[..., 1]), 0.0, None
+    inter_h = ops.maximum(
+        ops.minimum(b1[..., 3], b2[..., 3]) - ops.maximum(b1[..., 1], b2[..., 1]), 0.0
     )
     inter = inter_w * inter_h  # (N,M)
     union = ops.expand_dims(area1, 1) + ops.expand_dims(area2, 0) - inter + eps

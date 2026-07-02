@@ -9,7 +9,7 @@ from .yolov5_model import YOLOv5, build_yolov5
 def yolov5n(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -22,8 +22,10 @@ def yolov5n(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
@@ -59,7 +61,7 @@ def yolov5n(
 def yolov5s(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -72,8 +74,10 @@ def yolov5s(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
@@ -109,7 +113,7 @@ def yolov5s(
 def yolov5m(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -122,8 +126,10 @@ def yolov5m(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
@@ -159,7 +165,7 @@ def yolov5m(
 def yolov5l(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -172,8 +178,10 @@ def yolov5l(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http
@@ -209,7 +217,7 @@ def yolov5l(
 def yolov5x(
     nc=80,
     input_shape=(640, 640, 3),
-    data_format="channels_last",
+    data_format=None,
     deploy=True,
     weights=None,
     convert_weights=False,
@@ -222,8 +230,10 @@ def yolov5x(
 
     Args:
         nc: number of classes.
-        input_shape: input image shape.
-        data_format: "channels_last" or "channels_first".
+        input_shape: input image shape. Use (H, W, C) for channels_last or
+            (C, H, W) for channels_first.
+        data_format: "channels_last", "channels_first", or None to use the
+            global keras.config.image_data_format() (the default).
         deploy: build reparameterizable blocks in fused (inference) form.
         weights: optional checkpoint to load after building. A ".weights.h5" or
             ".keras" file is loaded directly; a ".pt" / ".pth" file (or an http

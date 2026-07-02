@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from keras import ops
 
+from ..layers.common import resolve_data_format
 from ..ops.anchors import bbox2dist, dist2bbox, make_anchors
 from ..ops.boxes import bbox_iou
 from ..ops.tal import TaskAlignedAssigner
@@ -31,6 +32,8 @@ class YOLODetectionLoss:
         box_gain / cls_gain / dfl_gain: loss-term weights.
         tal_topk: TAL candidate count per GT.
         use_dfl: whether the box branch is DFL-distributional.
+        data_format: layout of the head feature maps ("channels_last",
+            "channels_first", or None for the global Keras config).
     """
 
     def __init__(
@@ -43,6 +46,7 @@ class YOLODetectionLoss:
         dfl_gain=1.5,
         tal_topk=10,
         use_dfl=True,
+        data_format=None,
     ):
         self.nc = nc
         self.reg_max = reg_max
@@ -50,6 +54,7 @@ class YOLODetectionLoss:
         self.box_gain = box_gain
         self.cls_gain = cls_gain
         self.dfl_gain = dfl_gain
+        self.data_format = resolve_data_format(data_format)
         self.use_dfl = use_dfl and reg_max > 1
         self.no = 4 * reg_max + nc if self.use_dfl else 4 + nc
         self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=nc, alpha=0.5, beta=6.0)
@@ -91,6 +96,8 @@ class YOLODetectionLoss:
         shapes = []
         flat = []
         for f in feats:
+            if self.data_format == "channels_first":
+                f = ops.transpose(f, (0, 2, 3, 1))  # (B,C,H,W) -> (B,H,W,C)
             h = f.shape[1] if f.shape[1] is not None else ops.shape(f)[1]
             w = f.shape[2] if f.shape[2] is not None else ops.shape(f)[2]
             shapes.append((h, w))

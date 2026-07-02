@@ -5,6 +5,7 @@ from __future__ import annotations
 import keras
 from keras import ops
 
+from ..layers.common import resolve_data_format
 from ..layers.dfl import DFL
 from ..ops.anchors import decode_raw_predictions
 from ..ops.boxes import xywh2xyxy
@@ -38,7 +39,7 @@ class YOLOPostprocessor(keras.layers.Layer):
         iou_threshold=0.7,
         max_detections=300,
         end_to_end=False,
-        data_format="channels_last",
+        data_format=None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -49,7 +50,7 @@ class YOLOPostprocessor(keras.layers.Layer):
         self.iou_threshold = iou_threshold
         self.max_detections = max_detections
         self.end_to_end = end_to_end
-        self.data_format = data_format
+        self.data_format = resolve_data_format(data_format)
         self.dfl = DFL(reg_max) if reg_max > 1 else None
         if self.dfl is not None:
             self.dfl.build((None, 4 * reg_max, None))
