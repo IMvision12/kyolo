@@ -209,8 +209,7 @@ A runnable synthetic-data version lives in [`examples/train.py`](examples/train.
 
 The official YOLO checkpoints are **AGPL-3.0 licensed** and are **not**
 redistributed with this project. kyolo **does not download, cache, or auto-load
-them** for you - there is no `convert_weights=True` and no network fetch anywhere
-in the library. You obtain a `.pt` yourself and convert it **manually** with the
+them** for you. You obtain a `.pt` yourself and convert it **manually** with the
 per-model converter. The converted weights inherit AGPL-3.0.
 
 Conversion needs the `conversion` extra (`pip install -e ".[conversion]"`, which
