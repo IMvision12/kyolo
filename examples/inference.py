@@ -65,8 +65,8 @@ def _load_image_array(path):
         from PIL import Image
     except ImportError as exc:  # pragma: no cover - depends on environment
         raise ImportError(
-            "Pillow is required to read image files. "
-            "Install the visualization extra with `pip install kyolo[viz]`."
+            "Pillow is required to read image files. It ships with kyolo, so "
+            "reinstall it with `pip install pillow` (or `pip install kyolo`)."
         ) from exc
     with Image.open(path) as img:
         return np.asarray(img.convert("RGB"), dtype="uint8")

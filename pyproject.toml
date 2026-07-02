@@ -40,6 +40,8 @@ dynamic = ["version"]
 dependencies = [
     "keras>=3.5.0",
     "numpy>=1.24",
+    "matplotlib>=3.7",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
@@ -50,9 +52,6 @@ torch = ["torch>=2.2", "torchvision>=0.17"]
 
 # Weight conversion from the official (AGPL-3.0) PyTorch checkpoints --------
 conversion = ["torch>=2.2", "ultralytics>=8.2.0"]
-
-# Visualization / examples --------------------------------------------------
-viz = ["matplotlib>=3.7", "pillow>=10.0"]
 
 # Tests ---------------------------------------------------------------------
 tests = ["pytest", "pytest-cov"]

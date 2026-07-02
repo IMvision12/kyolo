@@ -1,9 +1,9 @@
 """Matplotlib-based visualization helpers for object-detection results.
 
 These helpers draw predicted boxes and labels on top of an image. ``matplotlib``
-is imported lazily inside the functions so that ``import kyolo.utils`` (and the
-rest of the package) keeps working when the optional visualization extra is not
-installed. Install it with ``pip install kyolo[viz]``.
+ships with the base install, but it is imported lazily inside the functions so
+that ``import kyolo.utils`` (and the rest of the package) keeps working even if
+``matplotlib`` has been removed from the environment.
 
 Only :mod:`numpy` and :mod:`matplotlib` are required here, plus ``keras`` for
 converting backend tensors to numpy via ``keras.ops.convert_to_numpy``.
@@ -48,8 +48,8 @@ def _import_matplotlib():
         import matplotlib.pyplot as plt
     except ImportError as exc:  # pragma: no cover - depends on environment
         raise ImportError(
-            "matplotlib is required for visualization. "
-            "Install the visualization extra with `pip install kyolo[viz]`."
+            "matplotlib is required for visualization. It ships with kyolo, so "
+            "reinstall it with `pip install matplotlib` (or `pip install kyolo`)."
         ) from exc
     return plt, patches
 

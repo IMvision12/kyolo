@@ -3,7 +3,7 @@
 This subpackage is a dependency-light leaf: it does not import anything else
 from :mod:`kyolo`, so it is safe to import from any other module without risking
 circular imports. The visualization helpers keep their ``matplotlib`` import
-lazy, so importing this package does not require the optional ``viz`` extra.
+lazy, so importing this package works even if ``matplotlib`` is unavailable.
 """
 
 from __future__ import annotations

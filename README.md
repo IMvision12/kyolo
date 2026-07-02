@@ -51,10 +51,11 @@ pip install -e ".[jax]"
 pip install -e ".[torch]"
 
 # optional extras
-pip install -e ".[viz]"      # matplotlib + pillow, for the examples
 pip install -e ".[conversion]"  # torch + ultralytics, for weight conversion
-pip install -e ".[all]"      # tensorflow + convert + viz + dev
 ```
+
+Visualization (`matplotlib` + `pillow`, used by the examples) ships with the
+base install, so a plain `pip install kyolo` is enough to run them.
 
 Select the active backend with the `KERAS_BACKEND` environment variable before
 importing anything:

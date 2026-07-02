@@ -20,7 +20,7 @@ help:
 
 .PHONY: install
 install:
-	pip install -e ".[tests,viz]"
+	pip install -e ".[tests]"
 	pip install -r dev-requirements.txt
 
 .PHONY: lint

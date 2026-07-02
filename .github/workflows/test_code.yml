@@ -54,8 +54,7 @@ jobs:
           else
             pip install "tensorflow-cpu>=2.16"
           fi
-          pip install matplotlib pillow
-          pip install -e .
+          pip install -e .  # brings in matplotlib + pillow (core deps)
       - name: Run tests
         run: |
           pytest tests/ -v --durations=20 --cov=kyolo -m "not slow and not gpu"
