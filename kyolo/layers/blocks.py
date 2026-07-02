@@ -209,7 +209,9 @@ def c3k2(
     return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv2")
 
 
-def sppf(x, c2, k=5, act=True, cv1_act=True, shortcut=False, data_format="channels_last", name="sppf"):
+def sppf(
+    x, c2, k=5, act=True, cv1_act=True, shortcut=False, data_format="channels_last", name="sppf"
+):
     """Spatial Pyramid Pooling - Fast (three chained max-pools).
 
     ``act`` selects the ``cv2`` fusion-conv activation (``True`` -> SiLU, the

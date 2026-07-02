@@ -76,9 +76,7 @@ def test_build_and_forward(name):
     for feat, stride in zip(outputs, STRIDES):
         shape = tuple(feat.shape)
         assert shape[0] == 1, f"{name}: batch dim should be 1, got {shape}"
-        assert shape[-1] == channels, (
-            f"{name}: channel dim should be {channels}, got {shape[-1]}"
-        )
+        assert shape[-1] == channels, f"{name}: channel dim should be {channels}, got {shape[-1]}"
         assert shape[1] == INPUT_SIZE // stride, f"{name}: bad H for stride {stride}: {shape}"
         assert shape[2] == INPUT_SIZE // stride, f"{name}: bad W for stride {stride}: {shape}"
 
