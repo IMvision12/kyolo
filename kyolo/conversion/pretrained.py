@@ -23,7 +23,15 @@ from .file_downloader import DEFAULT_CACHE, download_file
 __all__ = ["load_pretrained", "default_cache_dir"]
 
 # kyolo factory name -> official ".pt" filename stem for the ultralytics loader.
+# YOLOv5 maps to the anchor-free "u" checkpoints (yolov5nu.pt, ...), which use
+# the same DFL Detect head kyolo builds; the original anchor-based yolov5n.pt is
+# a different head and will not convert.
 _PT_STEM = {
+    "yolov5n": "yolov5nu",
+    "yolov5s": "yolov5su",
+    "yolov5m": "yolov5mu",
+    "yolov5l": "yolov5lu",
+    "yolov5x": "yolov5xu",
     "yolov7": "yolov7",
     "yolov7_tiny": "yolov7-tiny",
     "yolov7_x": "yolov7x",
@@ -43,6 +51,24 @@ def _resolve_local(path_or_url, cache_dir, force):
     if _is_url(path_or_url):
         return download_file(path_or_url, cache_dir=cache_dir, force_download=force)
     return path_or_url
+
+
+def _warn_on_misses(report, name):
+    """Warn loudly if the transfer left some variables unmatched.
+
+    A faithful conversion transfers every variable. Non-zero misses mean the
+    kyolo architecture for ``name`` diverges from the official checkpoint (e.g.
+    an approximated family), so those variables keep their random init.
+    """
+    skipped = report.get("skipped", 0) if isinstance(report, dict) else 0
+    if skipped:
+        total = report.get("total", "?")
+        print(
+            f"WARNING: {name}: {skipped}/{total} variables were NOT matched and "
+            f"keep their random initialization. The converted model will not "
+            f"reproduce the official outputs. This kyolo variant's architecture "
+            f"differs from the official checkpoint."
+        )
 
 
 def _download_official_pt(name, cache_dir, force):
@@ -79,7 +105,7 @@ def load_pretrained(
     weights=None,
     convert_weights=False,
     cache_dir=None,
-    method="order",
+    method="name",
     nc=80,
     force_download=False,
 ):
@@ -93,7 +119,7 @@ def load_pretrained(
         convert_weights: if True, fetch + convert + cache + load the official
             COCO checkpoint (requires ``nc == 80``).
         cache_dir: cache directory for downloads and converted weights.
-        method: transfer strategy, ``"order"`` (default) or ``"name"``.
+        method: transfer strategy, ``"name"`` (default) or ``"order"``.
         nc: number of classes (must be 80 when ``convert_weights=True``).
         force_download: bypass caches and re-fetch / re-convert.
 
@@ -121,14 +147,16 @@ def load_pretrained(
             if weights is not None
             else _download_official_pt(name, cache, force_download)
         )
-        _run_conversion(model, pt, output_path=cached, method=method, verbose=True)
+        report = _run_conversion(model, pt, output_path=cached, method=method, verbose=True)
+        _warn_on_misses(report, name)
         return model
 
     if weights is not None:
         wpath = _resolve_local(weights, cache, force_download)
         if str(wpath).endswith((".pt", ".pth")):
             # convert a PyTorch checkpoint straight into the model (no file saved)
-            _run_conversion(model, wpath, output_path=False, method=method, verbose=True)
+            report = _run_conversion(model, wpath, output_path=False, method=method, verbose=True)
+            _warn_on_misses(report, name)
         else:
             model.load_weights(wpath)
     return model

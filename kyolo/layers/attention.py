@@ -30,6 +30,7 @@ __all__ = [
     "scdown",
     "cib",
     "c2f_cib",
+    "rep_vgg_dw",
     "area_attention",
     "a2c2f",
 ]
@@ -156,13 +157,36 @@ def scdown(x, c2, kernel_size=3, strides=2, data_format="channels_last", name="s
     )
 
 
-def cib(x, c2, shortcut=True, e=0.5, data_format="channels_last", name="cib"):
-    """YOLOv10 Compact Inverted Block."""
+def rep_vgg_dw(x, dim, data_format="channels_last", name="repdw"):
+    """RepVGGDW: parallel 7x7 + 3x3 depth-wise convs, summed then activated.
+
+    Built in the unfused (training) form the official YOLOv10 checkpoints ship
+    in: two depth-wise ``Conv(act=False)`` branches named ``conv`` (7x7) and
+    ``conv1`` (3x3), added, then SiLU. This matches the reference exactly, so the
+    weights convert one-to-one (a deploy-time fuse would merge the 3x3 into the
+    7x7 kernel, but the released weights are not fused).
+    """
+    a = conv_bn(x, dim, 7, 1, groups=dim, act=False, data_format=data_format, name=f"{name}.conv")
+    b = conv_bn(x, dim, 3, 1, groups=dim, act=False, data_format=data_format, name=f"{name}.conv1")
+    y = layers.Add(name=f"{name}.add")([a, b])
+    return layers.Activation("swish", name=f"{name}.act")(y)
+
+
+def cib(x, c2, shortcut=True, e=0.5, lk=False, data_format="channels_last", name="cib"):
+    """YOLOv10 Compact Inverted Block.
+
+    ``lk`` (large-kernel) swaps the central 3x3 depth-wise conv for a
+    :func:`rep_vgg_dw` (7x7 + 3x3), matching the Ultralytics ``C2fCIB(..., lk=True)``
+    stages (nano stage 22; small stages 8 and 22).
+    """
     c1 = channels_of(x, data_format)
     c_ = int(c2 * e)
     y = conv_bn(x, c1, 3, 1, groups=c1, data_format=data_format, name=f"{name}.cv1.0")
     y = conv_bn(y, 2 * c_, 1, 1, data_format=data_format, name=f"{name}.cv1.1")
-    y = conv_bn(y, 2 * c_, 3, 1, groups=2 * c_, data_format=data_format, name=f"{name}.cv1.2")
+    if lk:
+        y = rep_vgg_dw(y, 2 * c_, data_format=data_format, name=f"{name}.cv1.2")
+    else:
+        y = conv_bn(y, 2 * c_, 3, 1, groups=2 * c_, data_format=data_format, name=f"{name}.cv1.2")
     y = conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv1.3")
     y = conv_bn(y, c2, 3, 1, groups=c2, data_format=data_format, name=f"{name}.cv1.4")
     if shortcut and c1 == c2:
@@ -170,8 +194,10 @@ def cib(x, c2, shortcut=True, e=0.5, data_format="channels_last", name="cib"):
     return y
 
 
-def c2f_cib(x, c2, n=1, shortcut=False, e=0.5, data_format="channels_last", name="c2fcib"):
-    """YOLOv10 C2fCIB: a C2f whose inner blocks are CIB."""
+def c2f_cib(
+    x, c2, n=1, shortcut=False, e=0.5, lk=False, data_format="channels_last", name="c2fcib"
+):
+    """YOLOv10 C2fCIB: a C2f whose inner blocks are CIB (``lk`` -> large-kernel)."""
     ax = concat_axis(data_format)
     c_ = int(c2 * e)
     y = conv_bn(x, 2 * c_, 1, 1, data_format=data_format, name=f"{name}.cv1")
@@ -179,7 +205,9 @@ def c2f_cib(x, c2, n=1, shortcut=False, e=0.5, data_format="channels_last", name
     outs = [y0, y1]
     cur = y1
     for i in range(n):
-        cur = cib(cur, c_, shortcut=shortcut, e=1.0, data_format=data_format, name=f"{name}.m.{i}")
+        cur = cib(
+            cur, c_, shortcut=shortcut, e=1.0, lk=lk, data_format=data_format, name=f"{name}.m.{i}"
+        )
         outs.append(cur)
     y = layers.Concatenate(axis=ax, name=f"{name}.concat")(outs)
     return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv2")

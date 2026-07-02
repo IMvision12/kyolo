@@ -164,13 +164,16 @@ def c3k2(
                 name=f"{name}.m.{i}",
             )
         else:
+            # Ultralytics C3k2 uses the default Bottleneck (e=0.5, hidden = c_/2),
+            # unlike C2f which pins e=1.0. Matching this is required for the
+            # official YOLO11 weights to load.
             cur = bottleneck(
                 cur,
                 c_,
                 shortcut=shortcut,
                 groups=groups,
                 kernels=(3, 3),
-                e=1.0,
+                e=0.5,
                 data_format=data_format,
                 name=f"{name}.m.{i}",
             )

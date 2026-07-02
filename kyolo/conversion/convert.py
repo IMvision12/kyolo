@@ -72,6 +72,22 @@ _SUFFIX_MAP = {
     "bias": "bias",
 }
 
+# Torch tensors that kyolo intentionally does not carry as model weights, so they
+# must be dropped before an order-based (positional) transfer or the counts will
+# not line up. The anchor-free Ultralytics heads store the fixed DFL projection
+# ``[0, 1, ..., reg_max-1]`` as a frozen ``...dfl.conv.weight`` conv; kyolo folds
+# that integral into post-processing instead, so it has no matching variable.
+_NON_TRANSFERABLE_SUFFIXES = ("dfl.conv.weight",)
+
+
+def _drop_non_transferable(torch_state: "Dict[str, np.ndarray]") -> "OrderedDict[str, np.ndarray]":
+    """Return ``torch_state`` without buffers kyolo does not hold (e.g. DFL)."""
+    return OrderedDict(
+        (k, v)
+        for k, v in torch_state.items()
+        if not any(k.endswith(sfx) for sfx in _NON_TRANSFERABLE_SUFFIXES)
+    )
+
 
 # --------------------------------------------------------------------------- #
 # Loading a torch checkpoint into plain numpy arrays
@@ -243,7 +259,7 @@ def transfer_by_order(
             or (when ``strict_shapes``) on a shape mismatch.
     """
     keras_vars = [(v, _var_kind(v)) for v in keras_model.weights]
-    torch_items: List[Tuple[str, np.ndarray]] = list(torch_state.items())
+    torch_items: List[Tuple[str, np.ndarray]] = list(_drop_non_transferable(torch_state).items())
 
     if len(keras_vars) != len(torch_items):
         raise ValueError(
@@ -387,7 +403,7 @@ def convert_weights(
     model,
     torch_weights_path: str,
     output_path: Optional[str] = None,
-    method: str = "order",
+    method: str = "name",
     name_mapping: Optional[Dict[str, str]] = None,
     verbose: bool = True,
 ) -> Dict[str, object]:
@@ -399,7 +415,12 @@ def convert_weights(
         output_path: Where to write the Keras weights. Defaults to
             ``<stem>.weights.h5`` next to the checkpoint's basename. Pass
             ``False`` to skip saving.
-        method: ``"order"`` (recommended) or ``"name"``.
+        method: ``"name"`` (default, recommended for the official checkpoints)
+            or ``"order"``. kyolo layer names mirror the Ultralytics modules, so
+            name matching is exact; the positional ``"order"`` transfer instead
+            needs the Keras build order to match the Torch registration order,
+            which does not hold for the CSP blocks (kyolo builds ``cv1, m..., cv2``
+            while Ultralytics registers ``cv1, cv2, m...``), so prefer ``"name"``.
         name_mapping: Optional substring mapping for the ``"name"`` method.
         verbose: Print progress and a final summary.
 

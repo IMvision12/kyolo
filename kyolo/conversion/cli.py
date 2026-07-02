@@ -47,9 +47,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--method",
         choices=("order", "name"),
-        default="order",
-        help="Transfer strategy. 'order' (default) is the robust positional "
-        "transfer; 'name' is best-effort name matching.",
+        default="name",
+        help="Transfer strategy. 'name' (default) matches kyolo layer names to "
+        "the Ultralytics modules and is exact for the official checkpoints; "
+        "'order' is a positional fallback.",
     )
     parser.add_argument(
         "--nc",

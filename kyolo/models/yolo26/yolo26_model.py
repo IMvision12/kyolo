@@ -88,6 +88,7 @@ def build_yolo26(
         cls_dw=True,
         data_format=data_format,
         name=f"yolo26{variant}",
+        head_name="model.23",  # matches the Ultralytics YOLO26 Detect module index
         end_to_end=True,
     )
 

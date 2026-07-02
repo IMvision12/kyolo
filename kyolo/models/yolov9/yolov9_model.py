@@ -80,6 +80,7 @@ def build_yolov9(
         reg_max=reg_max,
         data_format=data_format,
         name=f"yolov9{variant}",
+        head_name="model.22",  # matches the Ultralytics YOLOv9 Detect module index
     )
 
 

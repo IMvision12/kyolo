@@ -78,6 +78,7 @@ def build_yolo12(
         cls_dw=True,
         data_format=data_format,
         name=f"yolo12{variant}",
+        head_name="model.21",  # matches the Ultralytics YOLO12 Detect module index
     )
 
 

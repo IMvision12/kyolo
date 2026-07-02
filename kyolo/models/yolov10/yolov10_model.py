@@ -74,7 +74,12 @@ def build_yolov10(
     t = cat([conv_bn(p3o, ch(256), 3, 2, data_format=data_format, name="model.17"), p4n], "cat2")
     p4o = c2f(t, ch(512), nd(3), shortcut=False, data_format=data_format, name="model.19")
     t = cat([scdown(p4o, ch(512), 3, 2, data_format=data_format, name="model.20"), p5], "cat3")
-    p5o = c2f_cib(t, ch(1024), nd(3), shortcut=True, data_format=data_format, name="model.22")
+    # The P5 C2fCIB uses the large-kernel (RepVGGDW) CIB in the n/s scales only,
+    # matching the Ultralytics yolov10 yaml (`C2fCIB [1024, True, True]`).
+    p5_lk = variant in ("n", "s")
+    p5o = c2f_cib(
+        t, ch(1024), nd(3), shortcut=True, lk=p5_lk, data_format=data_format, name="model.22"
+    )
 
     return finalize_detector(
         inp,
@@ -84,6 +89,7 @@ def build_yolov10(
         cls_dw=True,
         data_format=data_format,
         name=f"yolov10{variant}",
+        head_name="model.23",  # matches the Ultralytics YOLOv10 Detect module index
         end_to_end=True,
     )
 
