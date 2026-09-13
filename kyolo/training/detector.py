@@ -16,6 +16,7 @@ from __future__ import annotations
 import keras
 
 from ..losses.detection_loss import YOLODetectionLoss
+from ..postprocessing.postprocessor import YOLOPostprocessor
 
 __all__ = ["YOLODetector"]
 
@@ -37,7 +38,9 @@ class YOLODetector(keras.Model):
         self.nc = nc if nc is not None else getattr(model, "nc", 80)
         self.reg_max = reg_max if reg_max is not None else getattr(model, "reg_max", 16)
         self.strides = strides if strides is not None else getattr(model, "strides", (8, 16, 32))
-        # NMS-free models (YOLOv10 / YOLO26) self-report via ``model.end_to_end``.
+        # ``end_to_end`` selects NMS-free top-k decoding in ``detect()``. It
+        # follows ``model.end_to_end``, which is False for every kyolo model
+        # (the built heads are one-to-many and need NMS).
         self.end_to_end = (
             end_to_end if end_to_end is not None else getattr(model, "end_to_end", False)
         )
@@ -48,16 +51,26 @@ class YOLODetector(keras.Model):
             data_format=getattr(model, "data_format", None),
         )
 
+        # Keras tracks these Mean metrics automatically, so they show up in
+        # ``self.metrics`` next to the compiled ``loss`` tracker and are reset
+        # every epoch with it.
         self._box = keras.metrics.Mean(name="box_loss")
         self._cls = keras.metrics.Mean(name="cls_loss")
         self._dfl = keras.metrics.Mean(name="dfl_loss")
-        self._postprocessor = None
+
+        # Built up front: sub-layers cannot be added to a model once it has been
+        # built (i.e. after the first train/predict step), so creating this
+        # lazily inside ``detect()`` would fail after ``fit()``. The thresholds
+        # are plain attributes that ``detect()`` overrides per call.
+        self._postprocessor = YOLOPostprocessor(
+            nc=self.nc,
+            reg_max=self.reg_max,
+            strides=self.strides,
+            end_to_end=self.end_to_end,
+            data_format=getattr(model, "data_format", None),
+        )
 
     # ------------------------------------------------------------------ #
-    @property
-    def metrics(self):
-        return [self._box, self._cls, self._dfl]
-
     def _images(self, x):
         if isinstance(x, dict):
             return x["images"]
@@ -74,7 +87,7 @@ class YOLODetector(keras.Model):
     def call(self, inputs, training=False):
         return self.body(self._images(inputs), training=training)
 
-    def compute_loss(self, x=None, y=None, y_pred=None, sample_weight=None):
+    def compute_loss(self, x=None, y=None, y_pred=None, sample_weight=None, training=True):
         targets = self._targets(x, y)
         losses = self.loss_fn(y_pred, targets)
         self._box.update_state(losses["box"])
@@ -87,23 +100,15 @@ class YOLODetector(keras.Model):
         """Run the model + post-processing and return ``(B, max_det, 6)`` detections.
 
         ``images`` must already be preprocessed (letterboxed / scaled). Use
-        :class:`kyolo.preprocessing.YOLOPreprocessor` first.
+        :class:`kyolo.preprocessing.YOLOPreprocessor` first. Works before and
+        after training; the thresholds apply to this call only.
         """
-        from ..postprocessing.postprocessor import YOLOPostprocessor
-
-        if self._postprocessor is None:
-            self._postprocessor = YOLOPostprocessor(
-                nc=self.nc,
-                reg_max=self.reg_max,
-                strides=self.strides,
-                conf_threshold=conf_threshold,
-                iou_threshold=iou_threshold,
-                max_detections=max_detections,
-                end_to_end=self.end_to_end,
-                data_format=getattr(self.body, "data_format", None),
-            )
+        pp = self._postprocessor
+        pp.conf_threshold = conf_threshold
+        pp.iou_threshold = iou_threshold
+        pp.max_detections = max_detections
         feats = self.body(images, training=False)
-        return self._postprocessor(feats)
+        return pp(feats)
 
     def get_config(self):
         # The wrapped body is a functional/subclassed model; serialise it.

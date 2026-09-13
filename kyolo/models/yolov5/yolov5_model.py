@@ -81,6 +81,7 @@ def build_yolov5(
         data_format=data_format,
         name=f"yolov5{variant}",
         head_name="model.24",  # matches the Ultralytics yolov5u Detect module index
+        backbone_end=9,  # model.0 - model.9 (SPPF)
     )
 
 

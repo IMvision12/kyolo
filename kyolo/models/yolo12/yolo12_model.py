@@ -91,6 +91,7 @@ def build_yolo12(
         data_format=data_format,
         name=f"yolo12{variant}",
         head_name="model.21",  # matches the Ultralytics YOLO12 Detect module index
+        backbone_end=8,  # model.0 - model.8 (A2C2f)
     )
 
 

@@ -81,6 +81,7 @@ def main():
     import keras
 
     import kyolo.models as models
+    from kyolo.models import load_pretrained_weights
     from kyolo.postprocessing import YOLOPostprocessor
     from kyolo.preprocessing import YOLOPreprocessor
     from kyolo.utils import COCO_CLASS_NAMES, visualize_detections
@@ -98,7 +99,7 @@ def main():
 
     if args.weights is not None:
         print(f"Loading weights from '{args.weights}' ...")
-        model.load_weights(args.weights)
+        load_pretrained_weights(model, args.weights)
     else:
         print(
             "\n[!] No --weights given: using RANDOM weights, so detections are "
@@ -128,14 +129,15 @@ def main():
     raw_feats = model(batch["images"])  # list of 3 tensors [P3, P4, P5]
 
     # ------------------------------------------------------------ postprocess
+    # reg_max / strides come from the model so the same code decodes every
+    # family (YOLO26 is DFL-free with reg_max=1).
     postprocessor = YOLOPostprocessor(
         nc=nc,
-        reg_max=16,
-        strides=(8, 16, 32),
+        reg_max=model.reg_max,
+        strides=model.strides,
         conf_threshold=args.conf,
         iou_threshold=args.iou,
         max_detections=300,
-        end_to_end=False,
     )
     detections = postprocessor(raw_feats)  # (B, max_detections, 6)
 

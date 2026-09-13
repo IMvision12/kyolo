@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..base import load_pretrained_weights
 from .config import YOLOV9_SPECS
 from .yolov9_model import YOLOv9, build_yolov9
 
@@ -32,7 +33,10 @@ def yolov9t(
             convert the official (AGPL-3.0) weights for you: convert a ".pt"
             you supply yourself with the per-model converter
             (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
-            and pass the resulting ".weights.h5" here.
+            and pass the resulting ".weights.h5" here. A checkpoint with a
+            different class count loads too: everything but the head's
+            classification branch is transferred (see
+            ``kyolo.models.load_pretrained_weights``).
     """
     model = build_yolov9(
         "t",
@@ -43,7 +47,7 @@ def yolov9t(
         **kwargs,
     )
     if weights is not None:
-        model.load_weights(weights)
+        load_pretrained_weights(model, weights)
     return model
 
 
@@ -73,7 +77,10 @@ def yolov9s(
             convert the official (AGPL-3.0) weights for you: convert a ".pt"
             you supply yourself with the per-model converter
             (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
-            and pass the resulting ".weights.h5" here.
+            and pass the resulting ".weights.h5" here. A checkpoint with a
+            different class count loads too: everything but the head's
+            classification branch is transferred (see
+            ``kyolo.models.load_pretrained_weights``).
     """
     model = build_yolov9(
         "s",
@@ -84,7 +91,7 @@ def yolov9s(
         **kwargs,
     )
     if weights is not None:
-        model.load_weights(weights)
+        load_pretrained_weights(model, weights)
     return model
 
 
@@ -114,7 +121,10 @@ def yolov9m(
             convert the official (AGPL-3.0) weights for you: convert a ".pt"
             you supply yourself with the per-model converter
             (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
-            and pass the resulting ".weights.h5" here.
+            and pass the resulting ".weights.h5" here. A checkpoint with a
+            different class count loads too: everything but the head's
+            classification branch is transferred (see
+            ``kyolo.models.load_pretrained_weights``).
     """
     model = build_yolov9(
         "m",
@@ -125,7 +135,7 @@ def yolov9m(
         **kwargs,
     )
     if weights is not None:
-        model.load_weights(weights)
+        load_pretrained_weights(model, weights)
     return model
 
 
@@ -155,7 +165,10 @@ def yolov9c(
             convert the official (AGPL-3.0) weights for you: convert a ".pt"
             you supply yourself with the per-model converter
             (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
-            and pass the resulting ".weights.h5" here.
+            and pass the resulting ".weights.h5" here. A checkpoint with a
+            different class count loads too: everything but the head's
+            classification branch is transferred (see
+            ``kyolo.models.load_pretrained_weights``).
     """
     model = build_yolov9(
         "c",
@@ -166,7 +179,7 @@ def yolov9c(
         **kwargs,
     )
     if weights is not None:
-        model.load_weights(weights)
+        load_pretrained_weights(model, weights)
     return model
 
 
@@ -196,7 +209,10 @@ def yolov9e(
             convert the official (AGPL-3.0) weights for you: convert a ".pt"
             you supply yourself with the per-model converter
             (``python -m kyolo.models.<family>.convert_<family>_torch_to_keras``)
-            and pass the resulting ".weights.h5" here.
+            and pass the resulting ".weights.h5" here. A checkpoint with a
+            different class count loads too: everything but the head's
+            classification branch is transferred (see
+            ``kyolo.models.load_pretrained_weights``).
     """
     model = build_yolov9(
         "e",
@@ -207,7 +223,7 @@ def yolov9e(
         **kwargs,
     )
     if weights is not None:
-        model.load_weights(weights)
+        load_pretrained_weights(model, weights)
     return model
 
 

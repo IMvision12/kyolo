@@ -12,6 +12,8 @@ from ..layers.letterbox import Letterbox
 
 __all__ = ["YOLOPreprocessor"]
 
+_INPUT_RANGES = ((0, 1), (0, 255))
+
 
 @keras.saving.register_keras_serializable(package="kyolo")
 class YOLOPreprocessor(keras.layers.Layer):
@@ -28,12 +30,24 @@ class YOLOPreprocessor(keras.layers.Layer):
 
     Args:
         image_size: square target side ``S``.
-        normalize: divide by 255 (auto-detected) and apply ``mean``/``std``.
+        normalize: if ``True`` (default) pixel values are scaled to ``[0, 1]``
+            (see ``input_range``) and then, when given, ``mean``/``std`` are
+            applied. If ``False`` pixel values are passed through untouched:
+            no scaling, no mean/std, and ``pad_color`` is used as-is.
+        input_range: value range of the *input* pixels, used only when
+            ``normalize=True``. ``(0, 255)`` always divides by 255, ``(0, 1)``
+            never does. The default ``None`` auto-detects per image: integer
+            inputs (e.g. ``uint8``) are 0-255, and a float image is treated as
+            0-255 when its own maximum exceeds 1. Images in a batch never
+            influence each other; pass an explicit range to avoid the
+            heuristic altogether (e.g. for very dark 0-255 float images).
         letterbox: aspect-preserving resize + pad; if ``False`` a plain resize.
         auto: minimal-rectangle padding to a multiple of ``stride`` (rarely used
             for batched inference - keep ``False`` for a fixed square).
         stride: stride for ``auto`` padding.
-        pad_color: RGB pad colour (0-255).
+        pad_color: RGB pad colour in 0-255 units, e.g. YOLO's ``(114, 114, 114)``.
+            It is scaled to ``[0, 1]`` together with the image when
+            ``normalize=True`` and used verbatim otherwise.
         mean / std: optional per-channel normalization (in [0, 1] scale).
         data_format: layout of the returned ``images`` ("channels_last",
             "channels_first", or None for the global Keras config). Inputs are
@@ -45,6 +59,7 @@ class YOLOPreprocessor(keras.layers.Layer):
         self,
         image_size: int = 640,
         normalize: bool = True,
+        input_range=None,
         letterbox: bool = True,
         auto: bool = False,
         stride: int = 32,
@@ -55,8 +70,15 @@ class YOLOPreprocessor(keras.layers.Layer):
         **kwargs,
     ):
         super().__init__(**kwargs)
+        if input_range is not None:
+            input_range = tuple(int(v) for v in input_range)
+            if input_range not in _INPUT_RANGES:
+                raise ValueError(
+                    f"input_range must be None, (0, 1) or (0, 255); got {input_range!r}."
+                )
         self.image_size = image_size
         self.normalize = normalize
+        self.input_range = input_range
         self.do_letterbox = letterbox
         self.auto = auto
         self.stride = stride
@@ -67,8 +89,15 @@ class YOLOPreprocessor(keras.layers.Layer):
         self._mean = ops.convert_to_tensor(mean if mean is not None else [0.0, 0.0, 0.0], "float32")
         self._std = ops.convert_to_tensor(std if std is not None else [1.0, 1.0, 1.0], "float32")
         if self.do_letterbox:
+            # The pad colour must be in the same units as the image it fills:
+            # /255 when the image has been scaled to [0, 1], raw otherwise.
             self.lb = Letterbox(
-                new_shape=image_size, color=pad_color, auto=auto, stride=stride, scaleup=True
+                new_shape=image_size,
+                color=pad_color,
+                color_divisor=255.0 if normalize else 1.0,
+                auto=auto,
+                stride=stride,
+                scaleup=True,
             )
 
     def _fix_channels(self, x):
@@ -81,16 +110,29 @@ class YOLOPreprocessor(keras.layers.Layer):
             raise ValueError(f"unsupported channel count: {c}")
         return x
 
+    def _to_unit_range(self, x, integer_input):
+        """Scale a float ``(B, H, W, C)`` batch to ``[0, 1]`` per ``input_range``."""
+        if self.input_range == (0, 1):
+            return x
+        if self.input_range == (0, 255) or integer_input:
+            return x / 255.0
+        # Auto-detect for float inputs, judging every image on its own maximum
+        # so a 0-255 image and a [0, 1] image in the same batch are both right.
+        per_image_max = ops.max(x, axis=(1, 2, 3), keepdims=True)
+        return ops.where(per_image_max > 1.0, x / 255.0, x)
+
     def call(self, inputs):
         x = ops.convert_to_tensor(inputs)
+        dtype = keras.backend.standardize_dtype(x.dtype)
+        integer_input = dtype.startswith(("int", "uint")) or dtype == "bool"
         x = ops.cast(x, "float32")
         single = len(x.shape) == 3
         if single:
             x = ops.expand_dims(x, 0)
         x = self._fix_channels(x)
 
-        # scale to [0, 1] if it looks like [0, 255]
-        x = ops.where(ops.max(x) > 1.0, x / 255.0, x)
+        if self.normalize:
+            x = self._to_unit_range(x, integer_input)
 
         if self.do_letterbox:
             x, ratio, pad = self.lb(x)
@@ -122,7 +164,8 @@ class YOLOPreprocessor(keras.layers.Layer):
         imgs = []
         for p in paths:
             img = keras.utils.load_img(p)
-            imgs.append(keras.utils.img_to_array(img))
+            # uint8 so the 0-255 range is known, not guessed
+            imgs.append(keras.utils.img_to_array(img, dtype="uint8"))
         # letterbox handles differing sizes -> stack after resize by looping
         batch = [self.call(img) for img in imgs]
         images = ops.concatenate([b["images"] for b in batch], axis=0)
@@ -136,6 +179,7 @@ class YOLOPreprocessor(keras.layers.Layer):
             {
                 "image_size": self.image_size,
                 "normalize": self.normalize,
+                "input_range": self.input_range,
                 "letterbox": self.do_letterbox,
                 "auto": self.auto,
                 "stride": self.stride,

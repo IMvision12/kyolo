@@ -93,41 +93,33 @@ def build_detector(model_name, nc, weights=None, freeze_backbone=False):
     """Build a :class:`YOLODetector`, optionally fine-tuning from a checkpoint.
 
     Fine-tuning notes:
-      * Load converted weights onto the *bare* model BEFORE wrapping it in the
-        detector. The official weights are AGPL-3.0 -- convert them yourself with
-        the per-model converter (see the README); they are not shipped here.
+      * Converted weights are loaded onto the *bare* model BEFORE wrapping it in
+        the detector. The official weights are AGPL-3.0 -- convert them yourself
+        with the per-model converter (see the README); they are not shipped here.
       * Freezing the backbone (``trainable = False``) trains only the neck and
         detection head, which is the usual recipe for small datasets.
     """
     import keras  # noqa: F401  (ensures a backend is importable)
 
     import kyolo.models as models
-    from kyolo.losses import YOLODetectionLoss
-    from kyolo.training import YOLODetector
+    from kyolo import training
 
     # deploy=False keeps reparameterizable branches un-fused for training.
+    # ``weights`` is loaded by the factory; a COCO (80-class) checkpoint loads
+    # into any ``nc`` - only the head's classification branch is re-initialised.
     factory = getattr(models, model_name.replace("-", "_"))
-    model = factory(nc=nc, input_shape=(IMAGE_SIZE, IMAGE_SIZE, 3), deploy=False)
-
-    # --- Fine-tuning: load weights before wrapping ------------------------
-    if weights is not None:
-        # e.g. model.load_weights("yolov8n.weights.h5")
-        model.load_weights(weights)
+    model = factory(nc=nc, input_shape=(IMAGE_SIZE, IMAGE_SIZE, 3), deploy=False, weights=weights)
 
     # --- Optionally freeze the backbone -----------------------------------
-    # The exact prefix depends on how the architecture names its sub-layers;
-    # Ultralytics-style models name backbone stages "backbone..." / "model.0"..
+    # Layers are named ``model-<stage>-...``; ``freeze_backbone`` freezes every
+    # stage up to ``model.backbone_end`` (the last stage before the neck).
     if freeze_backbone:
-        backbone_prefixes = ("backbone", "stem", "model.0", "model.1", "model.2")
-        frozen = 0
-        for layer in model.layers:
-            if layer.name.startswith(backbone_prefixes):
-                layer.trainable = False
-                frozen += 1
-        print(f"Froze {frozen} backbone layer(s).")
+        frozen = training.freeze_backbone(model)
+        print(f"Froze {len(frozen)} backbone layer(s) (model.0 - model.{model.backbone_end}).")
 
-    loss = YOLODetectionLoss(nc=nc, reg_max=16, strides=(8, 16, 32))
-    return YOLODetector(model, loss=loss, nc=nc, reg_max=16)
+    # The detector infers nc / reg_max / strides from the model and builds the
+    # matching YOLODetectionLoss (DFL-free for YOLO26's reg_max=1).
+    return training.YOLODetector(model)
 
 
 def main():

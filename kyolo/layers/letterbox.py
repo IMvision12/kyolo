@@ -13,6 +13,9 @@ class Letterbox(keras.layers.Layer):
     Args:
         new_shape: Target ``(height, width)`` or a single int for a square.
         color: RGB pad colour in ``[0, 255]`` (YOLO uses ``(114, 114, 114)``).
+        color_divisor: ``color`` is divided by this before filling. The default
+            ``255`` matches images already scaled to ``[0, 1]``; pass ``1.0``
+            when the images being padded are themselves in ``0-255`` units.
         auto: If ``True`` pad to the nearest multiple of ``stride`` (minimal
             rectangle) instead of the full square.
         scale_fill: Stretch to ``new_shape`` ignoring aspect ratio.
@@ -27,6 +30,7 @@ class Letterbox(keras.layers.Layer):
         self,
         new_shape=(640, 640),
         color=(114, 114, 114),
+        color_divisor=255.0,
         auto=False,
         scale_fill=False,
         scaleup=True,
@@ -38,11 +42,14 @@ class Letterbox(keras.layers.Layer):
             new_shape = (new_shape, new_shape)
         self.new_shape = tuple(new_shape)
         self.color = tuple(color)
+        self.color_divisor = float(color_divisor)
         self.auto = auto
         self.scale_fill = scale_fill
         self.scaleup = scaleup
         self.stride = stride
-        self.color_norm = ops.convert_to_tensor([c / 255.0 for c in color], dtype="float32")
+        self.color_norm = ops.convert_to_tensor(
+            [c / self.color_divisor for c in self.color], dtype="float32"
+        )
 
     def call(self, inputs):
         inputs = ops.convert_to_tensor(inputs, dtype="float32")
@@ -140,6 +147,7 @@ class Letterbox(keras.layers.Layer):
             {
                 "new_shape": self.new_shape,
                 "color": self.color,
+                "color_divisor": self.color_divisor,
                 "auto": self.auto,
                 "scale_fill": self.scale_fill,
                 "scaleup": self.scaleup,

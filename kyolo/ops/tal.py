@@ -1,7 +1,7 @@
 """Task-Aligned Assigner (TAL) in pure ``keras.ops``.
 
 This is the label-assignment strategy used by the anchor-free YOLO detectors
-(v6/v8/v9/v10/11/12/26). It selects, for every ground-truth box, the ``topk``
+(v5u/v8/v9/v10/11/12/26). It selects, for every ground-truth box, the ``topk``
 anchors whose *alignment metric* ``score^alpha * iou^beta`` is highest, resolves
 anchors claimed by several GTs in favour of the highest-IoU GT, and returns
 soft classification targets scaled by the (normalized) alignment metric.
@@ -55,7 +55,15 @@ class TaskAlignedAssigner:
               * ``target_bboxes``: ``(B, A, 4)`` xyxy grid units.
               * ``target_scores``: ``(B, A, nc)`` soft one-hot * alignment.
               * ``fg_mask``: ``(B, A)`` float, 1.0 for positive anchors.
+
+        The assignment is a pure target-construction step: like Ultralytics'
+        ``@torch.no_grad()`` assigner, no gradient flows from the returned
+        targets back into the predictions (the alignment metric depends on the
+        predicted scores, so without this the BCE targets would be
+        differentiable w.r.t. the class logits they supervise).
         """
+        pd_scores = ops.stop_gradient(pd_scores)
+        pd_bboxes = ops.stop_gradient(pd_bboxes)
         mask_gt_bn = ops.expand_dims(ops.cast(mask_gt, "float32"), -1)  # (B,M,1)
 
         # ---- candidates whose centre falls inside each GT box -------------

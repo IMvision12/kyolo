@@ -1,8 +1,10 @@
-"""YOLOv10 - C2f/C2fCIB backbone with SCDown + PSA, NMS-free (end-to-end) head.
+"""YOLOv10 - C2f/C2fCIB backbone with SCDown + PSA, DFL head.
 
-Uses the shared DFL head; run inference through
-``YOLOPostprocessor(..., end_to_end=True)`` to get the NMS-free top-k selection
-that YOLOv10 is designed for.
+kyolo builds the standard one-to-many (``cv2``/``cv3``) head, i.e. the branch
+the official checkpoints train with NMS-style assignment; the parallel
+``one2one_*`` head that gives YOLOv10 its NMS-free inference is not reproduced.
+Decode these models with the default (NMS) ``YOLOPostprocessor``; the NMS-free
+top-k decode (``end_to_end=True``) would return duplicate boxes here.
 """
 
 from __future__ import annotations
@@ -93,7 +95,7 @@ def build_yolov10(
         data_format=data_format,
         name=f"yolov10{variant}",
         head_name="model.23",  # matches the Ultralytics YOLOv10 Detect module index
-        end_to_end=True,
+        backbone_end=10,  # model.0 - model.10 (PSA)
     )
 
 

@@ -23,8 +23,12 @@ class YOLOPostprocessor(keras.layers.Layer):
         reg_max: DFL bins (``>1`` -> DFL integral; ``1`` -> direct distances).
         strides: per-level strides.
         conf_threshold / iou_threshold / max_detections: NMS params.
-        end_to_end: if ``True`` skip NMS and do NMS-free top-k selection
-            (YOLOv10 / YOLO26). If ``False`` run greedy class-aware NMS.
+        pre_nms_topk: highest-scoring candidates per image that enter NMS
+            (see :func:`kyolo.postprocessing.batched_nms`).
+        end_to_end: if ``True`` skip NMS and do NMS-free top-k selection. Only
+            valid for a head trained with one-to-one assignment; every head
+            kyolo builds (YOLOv10 / YOLO26 included) is one-to-many, so leave
+            this ``False`` and run the greedy class-aware NMS.
         data_format: layout of the input feature maps.
 
     Call returns ``(B, max_detections, 6)`` = ``[x1, y1, x2, y2, score, class]``.
@@ -40,6 +44,7 @@ class YOLOPostprocessor(keras.layers.Layer):
         max_detections=300,
         end_to_end=False,
         data_format=None,
+        pre_nms_topk=1000,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -49,11 +54,12 @@ class YOLOPostprocessor(keras.layers.Layer):
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold
         self.max_detections = max_detections
+        self.pre_nms_topk = pre_nms_topk
         self.end_to_end = end_to_end
         self.data_format = resolve_data_format(data_format)
+        # DFL is stateless, so the post-processor carries no variables and can
+        # be created lazily (e.g. inside an already-built YOLODetector).
         self.dfl = DFL(reg_max) if reg_max > 1 else None
-        if self.dfl is not None:
-            self.dfl.build((None, 4 * reg_max, None))
 
     def call(self, feats):
         boxes_xywh, scores = decode_raw_predictions(
@@ -72,7 +78,14 @@ class YOLOPostprocessor(keras.layers.Layer):
             self.iou_threshold,
             self.max_detections,
             self.conf_threshold,
+            self.pre_nms_topk,
         )
+
+    def compute_output_shape(self, input_shape):
+        # Declared explicitly so symbolic (functional-model) use never has to
+        # trace the data-dependent NMS loop inside ``call``.
+        batch = input_shape[0][0] if isinstance(input_shape[0], (list, tuple)) else input_shape[0]
+        return (batch, self.max_detections, 6)
 
     def get_config(self):
         config = super().get_config()
@@ -86,6 +99,7 @@ class YOLOPostprocessor(keras.layers.Layer):
                 "max_detections": self.max_detections,
                 "end_to_end": self.end_to_end,
                 "data_format": self.data_format,
+                "pre_nms_topk": self.pre_nms_topk,
             }
         )
         return config

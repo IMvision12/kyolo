@@ -2,13 +2,14 @@
 
 Mirrors the Ultralytics ``yolo26.yaml``: a C3k2 + SPPF + C2PSA backbone (the
 YOLO11 lineage) feeding the shared head. YOLO26 is natively **DFL-free**
-(``reg_max = 1``: the head regresses the four box distances directly) and
-end-to-end (NMS-free); decode with ``YOLOPostprocessor(..., end_to_end=True)``.
+(``reg_max = 1``: the head regresses the four box distances directly).
 
 Notes / approximations:
   * Like kyolo's YOLOv10, only the ``cv2``/``cv3`` (one-to-many) head is built;
-    the checkpoint's ``one2one_cv2``/``one2one_cv3`` deployment head is not
-    reproduced (its weights are simply skipped on conversion).
+    the checkpoint's ``one2one_cv2``/``one2one_cv3`` deployment head that makes
+    the official model NMS-free is not reproduced (its weights are simply
+    skipped on conversion). Decode with the default (NMS) ``YOLOPostprocessor``;
+    the NMS-free top-k decode (``end_to_end=True``) would return duplicate boxes.
   * ProgLoss / STAL training refinements are not reproduced.
 """
 
@@ -93,7 +94,7 @@ def build_yolo26(
         data_format=data_format,
         name=f"yolo26{variant}",
         head_name="model.23",  # matches the Ultralytics YOLO26 Detect module index
-        end_to_end=True,
+        backbone_end=10,  # model.0 - model.10 (C2PSA)
     )
 
 

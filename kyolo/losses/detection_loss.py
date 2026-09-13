@@ -122,9 +122,12 @@ class YOLODetectionLoss:
         pred_bboxes_px = pred_bboxes * stride_row
         anchors_px = anchors * stride_t  # (A,2)
 
+        # The assigner detaches both predictions internally (it mirrors the
+        # @torch.no_grad() Ultralytics assigner), so the returned targets are
+        # constants w.r.t. the network outputs.
         target_labels, target_bboxes_px, target_scores, fg_mask = self.assigner(
             ops.sigmoid(pred_scores),
-            ops.stop_gradient(pred_bboxes_px),
+            pred_bboxes_px,
             anchors_px,
             gt_labels,
             gt_bboxes,

@@ -1,7 +1,7 @@
 """kyolo - the YOLO object-detection family in pure Keras 3.
 
-Backend-agnostic (TensorFlow / JAX / PyTorch) implementations of YOLOv5, v6,
-v7, v8, v9, v10, YOLO11, YOLO12 and YOLO26, with preprocessing, postprocessing,
+Backend-agnostic (TensorFlow / JAX / PyTorch) implementations of YOLOv5, v8,
+v9, v10, YOLO11, YOLO12 and YOLO26, with preprocessing, postprocessing,
 training/fine-tuning support and PyTorch->Keras weight-conversion utilities.
 
 Quickstart
@@ -26,14 +26,14 @@ from __future__ import annotations
 from . import models
 from .losses import YOLODetectionLoss
 from .models import *  # noqa: F401,F403  (per-variant factories + family classes)
-from .models import MODEL_NAMES, list_models
+from .models import MODEL_NAMES, list_models, load_pretrained_weights
 from .postprocessing import (
     NonMaxSuppression,
     YOLOPostprocessor,
     detections_to_list,
 )
 from .preprocessing import YOLOPreprocessor
-from .training import YOLODetector
+from .training import YOLODetector, freeze_backbone
 from .version import __version__, version
 
 __all__ = [
@@ -51,5 +51,6 @@ __all__ = [
     "detections_to_list",
     # training / loss
     "YOLODetector",
+    "freeze_backbone",
     "YOLODetectionLoss",
 ]

@@ -11,6 +11,10 @@ not download or convert the official (AGPL-3.0) weights for you; convert a ``.pt
 you supply yourself with the per-model converter first (see the README)::
 
     model = yolov8n(weights="yolov8n.weights.h5")         # converted Keras file only
+    model = yolov8n(nc=3, weights="yolov8n.weights.h5")   # fine-tune: class branch re-initialised
+
+The loader behind ``weights=`` is ``load_pretrained_weights``; use it directly
+to load into a model you built yourself.
 
 Every factory returns a plain keras.Model. Feed the outputs to
 kyolo.postprocessing.YOLOPostprocessor for detections, or wrap the model in
@@ -20,6 +24,7 @@ YOLO11, ...) are also exported.
 
 from __future__ import annotations
 
+from .base import load_pretrained_weights
 from .yolo11 import (
     YOLO11,
     build_yolo11,
@@ -183,4 +188,5 @@ __all__ = [
     "yolo26x",
     "list_models",
     "MODEL_NAMES",
+    "load_pretrained_weights",
 ]
