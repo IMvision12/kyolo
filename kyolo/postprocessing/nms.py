@@ -22,6 +22,12 @@ from ..ops.boxes import xywh2xyxy
 
 __all__ = ["batched_nms", "top_k_detections", "detections_to_list", "NonMaxSuppression"]
 
+# Score given to candidates that only exist to pad a dynamically-shaped batch up
+# to ``k`` columns. It must fail ``scores > conf_threshold`` for every sane
+# threshold; ``-inf`` is only ever compared or replaced, never used in
+# arithmetic, so it cannot produce a NaN.
+_PAD_SCORE = float("-inf")
+
 
 def _pairwise_iou(boxes, eps=1e-7):
     """IoU matrix of xyxy ``boxes`` (B,K,4) -> (B,K,K)."""
@@ -65,14 +71,19 @@ def batched_nms(
         classes: ``(B, N)`` integer class ids.
         iou_threshold / max_detections / conf_threshold: NMS params.
         pre_nms_topk: at most this many of the highest-scoring boxes per image
-            enter NMS (``max_detections`` at least; capped at ``N``). Bounds the
-            ``(B, K, K)`` overlap matrix and the sweep length. 1000 is plenty for
-            ``max_detections=300`` at ordinary thresholds; raise it when you
-            evaluate with a very low ``conf_threshold`` and crowded images.
+            enter NMS (``max_detections`` at least; capped at ``N`` when ``N`` is
+            statically known). Bounds the ``(B, K, K)`` overlap matrix and the
+            sweep length. 1000 is plenty for ``max_detections=300`` at ordinary
+            thresholds; raise it when you evaluate with a very low
+            ``conf_threshold`` and crowded images.
 
     Returns:
         ``(B, max_detections, 6)`` = ``[x1, y1, x2, y2, score, class]`` padded.
         Rows are sorted by descending score; padding rows are all zeros.
+
+    Works with a dynamic ``N`` (unknown at trace time), which is the usual case
+    inside a ``tf.function`` or an exported SavedModel; the result is identical
+    to the statically-shaped call.
     """
     boxes = ops.cast(boxes, "float32")
     scores = ops.cast(scores, "float32")
@@ -81,6 +92,18 @@ def batched_nms(
     k = max(int(pre_nms_topk), int(max_detections))
     if n_static is not None:
         k = min(k, n_static)
+    else:
+        # N is unknown at trace time (a tf.function / SavedModel with a dynamic
+        # input signature), so it cannot be clamped against. ``ops.top_k`` needs
+        # a static ``k`` and fails outright when handed fewer than ``k`` columns
+        # ("input must have at least k columns"), so pad by a static ``k``
+        # instead: ``N + k >= k`` holds for every N. The padded candidates score
+        # ``-inf`` so they fail the ``valid`` threshold below and are discarded
+        # by the final compaction, and their boxes are zeros, so they have zero
+        # area and can never suppress or be suppressed.
+        scores = ops.pad(scores, [[0, 0], [0, k]], constant_values=_PAD_SCORE)
+        boxes = ops.pad(boxes, [[0, 0], [0, k], [0, 0]])
+        classes_f = ops.pad(classes_f, [[0, 0], [0, k]])
 
     # Highest-scoring K candidates per image, sorted, so the sweep visits them
     # in NMS order and the survivors come out already ranked.

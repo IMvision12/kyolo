@@ -222,6 +222,66 @@ def test_batched_nms_handles_negative_coordinates_and_empty_images():
     assert not out[1].any()
 
 
+requires_tensorflow = pytest.mark.skipif(
+    keras is None or keras.backend.backend() != "tensorflow",
+    reason="a dynamic (None) anchor count only arises in TensorFlow graph mode; "
+    "JAX and PyTorch always see static shapes",
+)
+
+
+@requires_tensorflow
+@pytest.mark.parametrize("n", [5, 120, 999, 1000, 3000])
+def test_batched_nms_with_dynamic_anchor_count(n):
+    """NMS traces with an unknown ``N`` and matches the statically-shaped result.
+
+    ``ops.top_k`` needs a static ``k`` and raises "input must have at least k
+    columns" when handed a narrower tensor, so a dynamic ``N`` -- the normal case
+    inside a ``tf.function`` or an exported SavedModel -- has to be padded up to
+    ``k`` rather than clamped against.
+    """
+    import tensorflow as tf
+
+    rng = np.random.default_rng(3)
+    boxes, scores, classes = _clustered_boxes(rng, batch=2, n=n)
+
+    traced = tf.function(
+        lambda b, s, c: batched_nms(b, s, c, 0.5, 50, 0.25, 1000),
+        input_signature=[
+            tf.TensorSpec([None, None, 4], tf.float32),
+            tf.TensorSpec([None, None], tf.float32),
+            tf.TensorSpec([None, None], tf.int32),
+        ],
+    )
+    dynamic = _np(traced(boxes, scores, classes))
+    static = _np(batched_nms(boxes, scores, classes, 0.5, 50, 0.25, 1000))
+
+    assert np.isfinite(dynamic).all()
+    np.testing.assert_allclose(dynamic, static, atol=1e-4)
+
+
+@requires_tensorflow
+def test_postprocessor_with_dynamic_feature_shapes():
+    """The full decode + NMS pipeline traces with unknown feature-map sizes."""
+    import tensorflow as tf
+
+    post = YOLOPostprocessor(
+        nc=NC, reg_max=REG_MAX, strides=(8, 16, 32), conf_threshold=0.05, max_detections=50
+    )
+    spec = [tf.TensorSpec([None, None, None, CHANNELS], tf.float32) for _ in range(3)]
+    traced = tf.function(lambda feats: post(feats), input_signature=[spec])
+
+    rng = np.random.default_rng(4)
+    for size in (64, 160):
+        feats = [
+            rng.normal(0, 1, (1, size // s, size // s, CHANNELS)).astype("float32")
+            for s in (8, 16, 32)
+        ]
+        dynamic = _np(traced(feats))
+        static = _np(post([ops.convert_to_tensor(f) for f in feats]))
+        assert dynamic.shape == (1, 50, 6)
+        np.testing.assert_allclose(dynamic, static, atol=1e-4)
+
+
 def test_postprocessor_in_functional_model():
     """The postprocessor can be attached symbolically (no NMS tracing needed)."""
     model = yolov8n(nc=NC, input_shape=(128, 128, 3))
