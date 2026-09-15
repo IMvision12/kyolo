@@ -3,6 +3,10 @@
 Consumes the raw head feature list and a target dict; returns the total loss
 and its components. Written densely in ``keras.ops`` so it differentiates and
 traces on every backend.
+
+The returned ``"loss"`` is scaled by the batch size, matching Ultralytics'
+``loss.sum() * batch_size``; the ``"box"`` / ``"cls"`` / ``"dfl"`` entries are
+the un-scaled per-term values used for reporting.
 """
 
 from __future__ import annotations
@@ -156,7 +160,16 @@ class YOLODetectionLoss:
         else:
             dfl_loss = ops.convert_to_tensor(0.0)
 
-        total = self.box_gain * box_loss + self.cls_gain * cls_loss + self.dfl_gain * dfl_loss
+        # Ultralytics' ``v8DetectionLoss`` ends with ``loss.sum() * batch_size``.
+        # Each term above is already normalized by ``target_scores_sum``, so the
+        # components are batch-size invariant; this factor is what makes the
+        # gradient magnitude (and therefore any learning rate copied from an
+        # Ultralytics recipe) scale the same way. The reported components stay
+        # un-scaled, mirroring the un-scaled ``loss.detach()`` returned there.
+        batch_size = ops.cast(ops.shape(pred_scores)[0], "float32")
+        total = batch_size * (
+            self.box_gain * box_loss + self.cls_gain * cls_loss + self.dfl_gain * dfl_loss
+        )
         return {
             "loss": total,
             "box": box_loss,
