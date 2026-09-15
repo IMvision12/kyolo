@@ -23,8 +23,34 @@ from ..layers.knames import layers
 
 __all__ = ["detect_head"]
 
-# Bias so the initial class probability is ~0.01 (stabilises early training).
-_CLS_BIAS = -math.log((1 - 0.01) / 0.01)
+# Ultralytics ``Detect.bias_init`` initialises the box branch's output conv bias
+# to 1.0. This matters far more than it looks: for a DFL-free head (``reg_max ==
+# 1``, i.e. YOLO26) the four box channels *are* the predicted distances, so a
+# zero bias makes every predicted box zero-area, which drives IoU -- and hence
+# the assigner's ``iou ** beta`` alignment metric -- to exactly 0. No anchor
+# then earns any weight, box/DFL loss is identically zero, and the box branch
+# never receives gradient. A bias of 1.0 breaks that deadlock. With
+# ``reg_max > 1`` the DFL softmax over zero logits is uniform, giving an
+# expected distance of ``mean(0..reg_max-1)``, so the branch starts off
+# predicting real boxes either way -- but we match the reference regardless.
+_BOX_BIAS = 1.0
+
+# Reference input size behind Ultralytics' class-bias formula.
+_BIAS_IMGSZ = 640
+
+
+def _cls_bias(nc, stride, imgsz=_BIAS_IMGSZ):
+    """Ultralytics ``Detect.bias_init`` class-branch bias for one pyramid level.
+
+    ``log(5 / nc / (imgsz / stride) ** 2)``: an initial per-class probability
+    calibrated so that roughly 5 objects are expected across the level's
+    ``(imgsz / stride) ** 2`` cells. Because it divides by the cell count it is
+    **stride-dependent** (about -11.5 / -10.2 / -8.8 at strides 8 / 16 / 32 for
+    ``nc=80``), i.e. far more confident-of-background than a flat ``p=0.01``
+    prior, which keeps the initial BCE term -- summed over ``B * A * nc`` mostly
+    negative entries -- the same order of magnitude as the box and DFL terms.
+    """
+    return math.log(5.0 / nc / (imgsz / stride) ** 2)
 
 
 def detect_head(
@@ -34,6 +60,7 @@ def detect_head(
     cls_dw=False,
     act=True,
     data_format=None,
+    strides=(8, 16, 32),
     name="detect",
 ):
     """Build the decoupled head over a list of pyramid feature maps.
@@ -47,6 +74,8 @@ def detect_head(
             plain convs (YOLOv8 style).
         act: conv activation (``True`` -> SiLU, the YOLO default, or a string).
         data_format: ``"channels_last"`` or ``"channels_first"``.
+        strides: per-level strides, used only to pick the stride-dependent
+            class-branch bias (see :func:`_cls_bias`). Must be one per level.
         name: dotted name prefix.
 
     Returns:
@@ -57,6 +86,11 @@ def detect_head(
     ch = [channels_of(f, data_format) for f in feats]
     c2 = max(16, ch[0] // 4, reg_max * 4)
     c3 = max(ch[0], min(nc, 100))
+    if len(strides) != len(feats):
+        raise ValueError(
+            f"detect_head got {len(feats)} feature maps but {len(strides)} strides "
+            f"({strides!r}); there must be exactly one stride per level."
+        )
 
     outputs = []
     for i, f in enumerate(feats):
@@ -68,6 +102,7 @@ def detect_head(
             1,
             use_bias=True,
             data_format=data_format,
+            bias_initializer=keras.initializers.Constant(_BOX_BIAS),
             name=f"{name}.cv2.{i}.2",
         )(reg)
 
@@ -93,7 +128,7 @@ def detect_head(
             1,
             use_bias=True,
             data_format=data_format,
-            bias_initializer=keras.initializers.Constant(_CLS_BIAS),
+            bias_initializer=keras.initializers.Constant(_cls_bias(nc, strides[i])),
             name=f"{name}.cv3.{i}.2",
         )(cls)
 

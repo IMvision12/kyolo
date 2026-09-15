@@ -7,6 +7,9 @@ traces on every backend.
 The returned ``"loss"`` is scaled by the batch size, matching Ultralytics'
 ``loss.sum() * batch_size``; the ``"box"`` / ``"cls"`` / ``"dfl"`` entries are
 the un-scaled per-term values used for reporting.
+
+The loss always runs in float32, so it is safe under ``mixed_float16`` /
+``mixed_bfloat16`` regardless of the dtype the head emits.
 """
 
 from __future__ import annotations
@@ -74,7 +77,9 @@ class YOLODetectionLoss:
         a = ops.shape(pred_dist)[1]
         x = ops.reshape(pred_dist, (b, a, 4, self.reg_max))
         x = ops.softmax(x, axis=-1)
-        proj = ops.reshape(self.proj, (1, 1, 1, self.reg_max))
+        # ``proj`` is built float32; follow the input dtype so a half-precision
+        # caller does not hit a dtype mismatch here.
+        proj = ops.cast(ops.reshape(self.proj, (1, 1, 1, self.reg_max)), x.dtype)
         return ops.sum(x * proj, axis=-1)
 
     def _df_loss(self, pred_dist, target):
@@ -107,7 +112,14 @@ class YOLODetectionLoss:
             shapes.append((h, w))
             b = ops.shape(f)[0]
             flat.append(ops.reshape(f, (b, h * w, self.no)))
-        x = ops.concatenate(flat, axis=1)  # (B, A, no)
+        # Always compute the loss in float32, whatever the head emitted. Under
+        # ``mixed_float16`` the feature maps arrive as float16, which breaks this
+        # in two ways: dtype mismatches against float32 constants, and -- less
+        # obviously -- overflow. The classification term below sums ``B * A * nc``
+        # elements (10.75M at B=16, A=8400, nc=80) of order 0.01 each, which
+        # exceeds float16's 65504 ceiling and reduces to ``inf``. Ultralytics gets
+        # the same protection from AMP autocast holding the loss in float32.
+        x = ops.cast(ops.concatenate(flat, axis=1), "float32")  # (B, A, no)
         pred_dist = x[..., : self.no - self.nc]
         pred_scores = x[..., self.no - self.nc :]
 
