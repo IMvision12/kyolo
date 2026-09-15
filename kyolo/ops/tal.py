@@ -123,15 +123,11 @@ class TaskAlignedAssigner:
         return align_metric, overlaps
 
     def _topk_mask(self, metrics):
-        # metrics (B,M,A); pick topk over anchors
         _, idx = ops.top_k(metrics, k=self.topk)  # (B,M,topk)
         a = ops.shape(metrics)[-1]
         onehot = ops.one_hot(idx, a)  # (B,M,topk,A)
         mask = ops.sum(onehot, axis=2)  # (B,M,A)
-        mask = ops.cast(mask > 0, "float32")
-        # drop candidates with (near) zero metric
-        mask = mask * ops.cast(metrics > self.eps, "float32")
-        return mask
+        return ops.cast(mask > 0, "float32")
 
     def _resolve_conflicts(self, mask_pos, overlaps):
         fg = ops.sum(mask_pos, axis=1)  # (B,A)
