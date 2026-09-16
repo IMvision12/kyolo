@@ -450,6 +450,67 @@ def test_batched_nms_pre_nms_topk_limits_candidates():
         np.testing.assert_allclose(got[:, :4], boxes[b][top][keep], atol=1e-4)
 
 
+def _self_suppressing_then_separated(n_dup=1200, n_sep=1200):
+    """Many near-duplicate top scorers hiding well-separated lower scorers.
+
+    The pre-NMS cap is applied *before* the sweep, so with ``pre_nms_topk`` at or
+    below ``n_dup`` the separated boxes never enter NMS at all -- even though the
+    duplicates above them all collapse into a single detection.
+    """
+    duplicates = np.tile(np.array([[10.0, 10.0, 110.0, 110.0]], "float32"), (n_dup, 1))
+    duplicates += np.linspace(-0.5, 0.5, n_dup, dtype="float32")[:, None]
+    separated = np.stack(
+        [
+            np.arange(n_sep) * 200.0,
+            np.zeros(n_sep),
+            np.arange(n_sep) * 200.0 + 50.0,
+            np.full(n_sep, 50.0),
+        ],
+        axis=-1,
+    ).astype("float32")
+    boxes = np.concatenate([duplicates, separated])[None]
+    scores = np.concatenate(
+        [np.linspace(0.99, 0.90, n_dup), np.linspace(0.89, 0.80, n_sep)]
+    ).astype("float32")[None]
+    classes = np.zeros((1, n_dup + n_sep), "int32")
+    return boxes, scores, classes
+
+
+def test_batched_nms_keeps_candidates_beyond_the_old_1000_cap():
+    """The default must not drop detections ranked past the pre-NMS cap.
+
+    The old ``pre_nms_topk=1000`` default kept 1 of 300 findable detections here:
+    the 1000 highest scorers were all near-duplicates that suppressed each other,
+    and everything genuinely separate ranked below the cap and never entered the
+    sweep. The new default (Ultralytics' ``max_nms=30000``) is effectively no cap
+    at ordinary anchor counts.
+    """
+    boxes, scores, classes = _self_suppressing_then_separated()
+    kept = lambda out: int((_np(out)[0, :, 4] > 0).sum())  # noqa: E731
+
+    assert kept(batched_nms(boxes, scores, classes, 0.5, 300, 0.25)) == 300
+    # the cap is still honoured when asked for explicitly, and still costs recall
+    assert kept(batched_nms(boxes, scores, classes, 0.5, 300, 0.25, pre_nms_topk=1000)) == 1
+
+
+def test_batched_nms_early_exit_matches_full_sweep():
+    """Stopping once every image has ``max_detections`` survivors stays exact.
+
+    The sweep ends early because later candidates score lower and cannot reach
+    the output; with far more survivors than ``max_detections`` this triggers on
+    every image, so the result must still match plain greedy NMS.
+    """
+    rng = np.random.default_rng(7)
+    boxes, scores, classes = _clustered_boxes(rng, batch=3, n=900)
+    max_detections = 25
+    out = _np(batched_nms(boxes, scores, classes, 0.5, max_detections, 0.05))
+    for b in range(3):
+        keep = _reference_nms(boxes[b], scores[b], classes[b], 0.5, 0.05, max_detections)
+        assert len(keep) == max_detections, "fixture must over-fill max_detections"
+        got = out[b][out[b][:, 4] > 0]
+        np.testing.assert_allclose(got[:, :4], boxes[b][keep], atol=1e-4)
+
+
 def test_batched_nms_handles_negative_coordinates_and_empty_images():
     rng = np.random.default_rng(1)
     boxes, scores, classes = _clustered_boxes(rng, batch=2, n=100)

@@ -1,16 +1,22 @@
 """Non-maximum suppression and NMS-free top-k selection - pure ``keras.ops``.
 
 The greedy NMS keeps the ``pre_nms_topk`` highest-scoring candidates of every
-image (sorted), computes their pairwise class-aware overlaps once, and then
-sweeps them in score order inside a single ``keras.ops.while_loop``: candidate
-``i``, if still kept, suppresses every lower-ranked box it overlaps. The loop
-body is three cheap ``(B, K)`` ops and the loop stops as soon as the
-above-threshold prefix has been visited, so the cost scales with the number of
-real candidates rather than with ``max_detections`` x anchors. It is exact
-greedy NMS, vectorised across the batch, needs no backend-native NMS op, and
-traces as one compact loop node (rather than an unrolled graph) on TensorFlow,
-JAX and PyTorch. Outputs are fixed-size ``(B, max_det, 6)`` tensors
-``[x1, y1, x2, y2, score, class]`` zero-padded to ``max_det``.
+image (sorted) and sweeps them in score order inside a single
+``keras.ops.while_loop``: candidate ``i``, if still kept, suppresses every
+lower-ranked box it overlaps. It is exact greedy NMS, vectorised across the
+batch, needs no backend-native NMS op, and traces as one compact loop node
+(rather than an unrolled graph) on TensorFlow, JAX and PyTorch. Outputs are
+fixed-size ``(B, max_det, 6)`` tensors ``[x1, y1, x2, y2, score, class]``
+zero-padded to ``max_det``.
+
+Each iteration needs only candidate ``i``'s overlaps against the others, so that
+single ``(B, K)`` row is computed inside the loop instead of materialising the
+whole ``(B, K, K)`` matrix up front. Same arithmetic and the same total work,
+but peak memory is ``O(B*K)`` rather than ``O(B*K^2)`` -- which is what makes a
+``pre_nms_topk`` large enough to not cost recall affordable at all (a
+``(K, K)`` bool matrix alone is 900 MB at ``K=30000``). The sweep also stops as
+soon as every image has ``max_detections`` confirmed survivors, so ordinary
+inference visits only a handful of candidates no matter how large ``K`` is.
 """
 
 from __future__ import annotations
@@ -29,20 +35,32 @@ __all__ = ["batched_nms", "top_k_detections", "detections_to_list", "NonMaxSuppr
 _PAD_SCORE = float("-inf")
 
 
-def _pairwise_iou(boxes, eps=1e-7):
-    """IoU matrix of xyxy ``boxes`` (B,K,4) -> (B,K,K)."""
-    b1 = ops.expand_dims(boxes, 2)  # (B,K,1,4)
-    b2 = ops.expand_dims(boxes, 1)  # (B,1,K,4)
+def _box_areas(boxes):
+    """Areas of xyxy ``boxes`` (B,K,4) -> (B,K)."""
     # Lower-bound-only clamp via maximum: ops.clip with a None bound is not
     # portable across backends (fails on TensorFlow and PyTorch).
-    iw = ops.maximum(ops.minimum(b1[..., 2], b2[..., 2]) - ops.maximum(b1[..., 0], b2[..., 0]), 0.0)
-    ih = ops.maximum(ops.minimum(b1[..., 3], b2[..., 3]) - ops.maximum(b1[..., 1], b2[..., 1]), 0.0)
-    inter = iw * ih  # (B,K,K)
-    area = ops.maximum(boxes[..., 2] - boxes[..., 0], 0.0) * ops.maximum(
+    return ops.maximum(boxes[..., 2] - boxes[..., 0], 0.0) * ops.maximum(
         boxes[..., 3] - boxes[..., 1], 0.0
-    )  # (B,K)
-    union = ops.expand_dims(area, 2) + ops.expand_dims(area, 1) - inter + eps
-    return inter / union
+    )
+
+
+def _iou_row(boxes, areas, i, eps=1e-7):
+    """IoU of candidate ``i`` against every candidate: (B,K,4) -> (B,K).
+
+    One row of the pairwise matrix. Computing rows on demand keeps peak memory
+    at ``O(B*K)``; the arithmetic is elementwise and identical to building the
+    full matrix, so the result is bit-for-bit the same.
+    """
+    b1 = ops.expand_dims(ops.take(boxes, i, axis=1), 1)  # (B,1,4)
+    area_i = ops.expand_dims(ops.take(areas, i, axis=1), 1)  # (B,1)
+    iw = ops.maximum(
+        ops.minimum(b1[..., 2], boxes[..., 2]) - ops.maximum(b1[..., 0], boxes[..., 0]), 0.0
+    )
+    ih = ops.maximum(
+        ops.minimum(b1[..., 3], boxes[..., 3]) - ops.maximum(b1[..., 1], boxes[..., 1]), 0.0
+    )
+    inter = iw * ih  # (B,K)
+    return inter / (area_i + areas - inter + eps)
 
 
 def _gather_rows(x, idx):
@@ -61,7 +79,7 @@ def batched_nms(
     iou_threshold=0.7,
     max_detections=300,
     conf_threshold=0.25,
-    pre_nms_topk=1000,
+    pre_nms_topk=30000,
 ):
     """Greedy class-aware NMS.
 
@@ -72,10 +90,15 @@ def batched_nms(
         iou_threshold / max_detections / conf_threshold: NMS params.
         pre_nms_topk: at most this many of the highest-scoring boxes per image
             enter NMS (``max_detections`` at least; capped at ``N`` when ``N`` is
-            statically known). Bounds the ``(B, K, K)`` overlap matrix and the
-            sweep length. 1000 is plenty for ``max_detections=300`` at ordinary
-            thresholds; raise it when you evaluate with a very low
-            ``conf_threshold`` and crowded images.
+            statically known). The cap applies *before* the sweep, so anything
+            ranked beyond it is dropped even if everything above it ends up
+            suppressed -- the default matches Ultralytics' ``max_nms=30000``,
+            which is effectively no cap at the usual anchor counts (8400 at
+            640px). Cost is ``O(min(n_above_threshold, max_detections) * K)``, so
+            a larger ``K`` makes each sweep step proportionally wider: measured
+            ~1.6x total NMS time at a realistic ``conf_threshold=0.25`` and up to
+            ~5x for low-threshold evaluation sweeps. Lower it only if you need
+            that time back and accept losing detections ranked beyond it.
 
     Returns:
         ``(B, max_detections, 6)`` = ``[x1, y1, x2, y2, score, class]`` padded.
@@ -116,27 +139,38 @@ def batched_nms(
     # The span (not just the max) keeps classes apart with negative coordinates.
     span = ops.max(boxes) - ops.min(boxes) + 1.0
     off_boxes = boxes + ops.expand_dims(classes_f * span, -1)
-
-    # overlap[b, i, j]: candidate i suppresses candidate j if i is kept. Only
-    # lower-ranked boxes (j > i) can be suppressed, never the box itself.
-    positions = ops.arange(k, dtype="int32")
-    later = ops.expand_dims(positions, 0) > ops.expand_dims(positions, 1)  # (K,K): j > i
-    overlap = ops.logical_and(_pairwise_iou(off_boxes) > iou_threshold, ops.expand_dims(later, 0))
+    areas = _box_areas(off_boxes)  # (B,K), reused by every row
+    positions = ops.arange(k, dtype="int32")  # (K,)
 
     # Only the above-threshold prefix needs to be swept: everything after it is
     # neither kept nor able to suppress anything.
     n_iter = ops.max(ops.sum(ops.cast(valid, "int32"), axis=1))
+    zero = ops.convert_to_tensor(0, dtype="int32")
+    n_kept = ops.zeros_like(ops.sum(ops.cast(valid, "int32"), axis=1))  # (B,)
 
-    def cond(i, keep):
-        return i < n_iter
+    def cond(i, keep, n_kept):
+        # Also stop once every image has `max_detections` confirmed survivors:
+        # anything later scores lower, so it cannot reach the output whether or
+        # not it would have been suppressed.
+        return ops.logical_and(i < n_iter, ops.min(n_kept) < max_detections)
 
-    def body(i, keep):
-        row = ops.take(overlap, i, axis=1)  # (B,K): what candidate i would suppress
+    def body(i, keep, n_kept):
+        # keep[i] is final here: every j < i has already applied its suppression.
         kept_i = ops.take(keep, i, axis=1)  # (B,)
+        # What candidate i suppresses. Only lower-ranked boxes (j > i) can be
+        # suppressed, never the box itself.
+        row = ops.logical_and(
+            _iou_row(off_boxes, areas, i) > iou_threshold,
+            ops.expand_dims(positions > i, 0),
+        )
         suppress = ops.logical_and(row, ops.expand_dims(kept_i, -1))
-        return i + 1, ops.logical_and(keep, ops.logical_not(suppress))
+        return (
+            i + 1,
+            ops.logical_and(keep, ops.logical_not(suppress)),
+            n_kept + ops.cast(kept_i, "int32"),
+        )
 
-    _, keep = ops.while_loop(cond, body, (ops.convert_to_tensor(0, dtype="int32"), valid))
+    _, keep, _ = ops.while_loop(cond, body, (zero, valid, n_kept))
 
     # Compact the survivors (already in descending-score order) to the front.
     kept_scores = ops.where(keep, scores, -1.0)
@@ -224,7 +258,7 @@ class NonMaxSuppression(keras.layers.Layer):
         conf_threshold=0.25,
         iou_threshold=0.7,
         max_detections=300,
-        pre_nms_topk=1000,
+        pre_nms_topk=30000,
         **kwargs,
     ):
         super().__init__(**kwargs)
