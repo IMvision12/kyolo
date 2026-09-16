@@ -15,6 +15,7 @@ try:
     from keras import ops
 
     from kyolo.models import yolov8n
+    from kyolo.ops import clip_boxes, scale_boxes
     from kyolo.postprocessing import YOLOPostprocessor, batched_nms
     from kyolo.preprocessing import YOLOPreprocessor
 
@@ -120,17 +121,31 @@ def test_preprocessor_round_trips_through_config():
     assert clone.input_range == (0, 255) and clone.normalize is False
 
 
-def test_preprocessor_letterbox_geometry_matches_reference():
-    """``ratio`` / ``pad`` reproduce Ultralytics' LetterBox for odd aspect ratios."""
-    for h, w in [(480, 640), (1080, 810), (333, 500), (427, 640), (721, 1281)]:
-        out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
-        # reference: r = min(new/h, new/w); dw/dh = (new - round(side * r)) / 2
-        r = min(640 / h, 640 / w)
-        dw = (640 - int(round(w * r))) / 2
-        dh = (640 - int(round(h * r))) / 2
-        np.testing.assert_allclose(_np(out["ratio"])[0], [r, r], rtol=1e-6)
-        np.testing.assert_allclose(_np(out["pad"])[0], [dw, dh], rtol=1e-6)
-        assert tuple(out["images"].shape) == (1, 640, 640, 3)
+_ASPECT_RATIOS = [(480, 640), (1080, 810), (333, 500), (427, 640), (721, 1281), (500, 375)]
+
+
+def _reference_letterbox(h, w, size=640):
+    """Ultralytics ``LetterBox`` geometry: ratio and the applied (left, top) pad."""
+    r = min(size / h, size / w)
+    dw = (size - int(round(w * r))) / 2
+    dh = (size - int(round(h * r))) / 2
+    return r, (max(round(dw - 0.1), 0), max(round(dh - 0.1), 0))
+
+
+@pytest.mark.parametrize(("h", "w"), _ASPECT_RATIOS)
+def test_preprocessor_letterbox_geometry_matches_reference(h, w):
+    """``ratio`` / ``pad`` reproduce Ultralytics' LetterBox for odd aspect ratios.
+
+    ``pad`` must be the padding *actually applied* (``left``/``top``), not the
+    unrounded half-padding: they differ by 0.5px whenever the total padding is
+    odd (e.g. 427x640 pads 106 on top, not 106.5), and this is the value callers
+    subtract to invert the transform.
+    """
+    out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
+    r, pad = _reference_letterbox(h, w)
+    np.testing.assert_allclose(_np(out["ratio"])[0], [r, r], rtol=1e-6)
+    np.testing.assert_allclose(_np(out["pad"])[0], pad, atol=0)
+    assert tuple(out["images"].shape) == (1, 640, 640, 3)
 
 
 def test_preprocessor_compute_output_shape():
@@ -235,6 +250,107 @@ def test_end_to_end_pipeline_exports_to_saved_model():
         served = reloaded.serve(np.random.rand(1, 40, 50, 3).astype("float32"))
         assert tuple(served.shape) == (1, 10, 6)
         assert np.isfinite(_np(served)).all()
+
+
+# --------------------------------------------------------------------------- #
+# Coordinate inversion (scale_boxes / clip_boxes)
+# --------------------------------------------------------------------------- #
+def _reference_scale_boxes(boxes, ratio, pad, orig_shape):
+    """Port of Ultralytics' ``scale_boxes`` + ``clip_boxes`` (numpy, non-mutating)."""
+    out = np.array(boxes, dtype="float64", copy=True)
+    out[..., 0] -= pad[0]
+    out[..., 1] -= pad[1]
+    out[..., 2] -= pad[0]
+    out[..., 3] -= pad[1]
+    out[..., :4] /= ratio[0]
+    height, width = orig_shape
+    out[..., 0] = out[..., 0].clip(0, width)
+    out[..., 1] = out[..., 1].clip(0, height)
+    out[..., 2] = out[..., 2].clip(0, width)
+    out[..., 3] = out[..., 3].clip(0, height)
+    return out
+
+
+@pytest.mark.parametrize(("h", "w"), _ASPECT_RATIOS)
+def test_scale_boxes_matches_reference(h, w):
+    """Identical to Ultralytics' ``scale_boxes`` for the preprocessor's ratio/pad."""
+    rng = np.random.default_rng(0)
+    out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
+    ratio, pad = _np(out["ratio"])[0], _np(out["pad"])[0]
+    # sorted so x1 <= x2, and deliberately out of bounds so clipping is exercised
+    boxes = np.sort(rng.uniform(-40, 700, size=(16, 4)).astype("float32"), axis=-1)
+    got = _np(scale_boxes(boxes, ratio, pad, (h, w)))
+    want = _reference_scale_boxes(boxes, ratio, pad, (h, w))
+    np.testing.assert_allclose(got, want, atol=1e-3)
+
+
+@pytest.mark.parametrize(("h", "w"), _ASPECT_RATIOS)
+def test_scale_boxes_round_trips_the_preprocessor(h, w):
+    """original -> letterbox space -> scale_boxes returns the original pixels.
+
+    This is exact only because ``pad`` reports the padding actually applied; with
+    the unrounded half-padding every odd-padding image was off by 0.5px.
+    """
+    out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
+    ratio, pad = _np(out["ratio"])[0], _np(out["pad"])[0]
+    # well inside the image, so clipping is not what makes this pass
+    rng = np.random.default_rng(1)
+    orig = np.sort(rng.uniform(5, min(h, w) - 5, size=(64, 4)).astype("float32"), axis=-1)
+    letterboxed = orig * np.tile(ratio, 2) + np.tile(pad, 2)
+    np.testing.assert_allclose(_np(scale_boxes(letterboxed, ratio, pad, (h, w))), orig, atol=1e-3)
+
+
+def test_scale_boxes_passes_through_score_and_class():
+    """A (B, N, 6) detection tensor can be scaled directly."""
+    detections = np.array(
+        [[[100.0, 150.0, 300.0, 400.0, 0.9, 17.0], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]],
+        dtype="float32",
+    )
+    out = YOLOPreprocessor(image_size=640)(np.zeros((427, 640, 3), "float32"))
+    scaled = _np(scale_boxes(detections, _np(out["ratio"]), _np(out["pad"]), (427, 640)))
+    assert scaled.shape == detections.shape
+    np.testing.assert_allclose(scaled[0, 0, 4:], [0.9, 17.0])
+    # zero-padded rows survive as zeros, so `score > threshold` filters still work
+    np.testing.assert_allclose(scaled[0, 1], 0.0)
+
+
+def test_scale_boxes_accepts_per_image_ratio_pad_and_shape():
+    """A batch of differently-sized originals is scaled independently."""
+    pre = YOLOPreprocessor(image_size=640)
+    first = pre(np.zeros((427, 640, 3), "float32"))
+    second = pre(np.zeros((1080, 810, 3), "float32"))
+    ratio = np.concatenate([_np(first["ratio"]), _np(second["ratio"])], axis=0)
+    pad = np.concatenate([_np(first["pad"]), _np(second["pad"])], axis=0)
+    boxes = np.tile(np.array([[[10.0, 20.0, 400.0, 500.0]]], "float32"), (2, 1, 1))
+    shapes = [(427, 640), (1080, 810)]
+
+    got = _np(scale_boxes(boxes, ratio, pad, np.array(shapes, "float32")))
+    for i, shape in enumerate(shapes):
+        want = _reference_scale_boxes(boxes[i], ratio[i], pad[i], shape)
+        np.testing.assert_allclose(got[i], want, atol=1e-3)
+
+
+@pytest.mark.parametrize("shape", [(4,), (7, 4), (2, 7, 4), (2, 7, 6)])
+def test_scale_boxes_preserves_shape(shape):
+    boxes = np.zeros(shape, dtype="float32")
+    assert _np(scale_boxes(boxes, [1.0, 1.0], [0.0, 0.0], (10, 10))).shape == shape
+
+
+def test_clip_boxes_bounds_to_image():
+    boxes = np.array([[-50.0, -50.0, 5000.0, 5000.0]], dtype="float32")
+    np.testing.assert_allclose(_np(clip_boxes(boxes, (100, 200)))[0], [0, 0, 200, 100])
+    # clip=False leaves out-of-bounds coordinates alone
+    unclipped = _np(scale_boxes(boxes, [1.0, 1.0], [0.0, 0.0], clip=False))
+    np.testing.assert_allclose(unclipped[0], [-50.0, -50.0, 5000.0, 5000.0])
+
+
+def test_scale_boxes_rejects_bad_inputs():
+    with pytest.raises(ValueError, match="at least 4 columns"):
+        scale_boxes(np.zeros((3, 3), "float32"), [1.0, 1.0], [0.0, 0.0], (1, 1))
+    with pytest.raises(ValueError, match="`orig_shape` is required"):
+        scale_boxes(np.zeros((3, 4), "float32"), [1.0, 1.0], [0.0, 0.0], clip=True)
+    with pytest.raises(ValueError, match="needs batched boxes"):
+        scale_boxes(np.zeros((3, 4), "float32"), np.zeros((2, 2), "float32"), [0.0, 0.0], (1, 1))
 
 
 # --------------------------------------------------------------------------- #

@@ -25,8 +25,19 @@ class YOLOPreprocessor(keras.layers.Layer):
         {"images": (B, S, S, 3), "ratio": (B, 2), "pad": (B, 2)}
 
     ``images`` is ``(B, S, S, 3)`` for channels_last or ``(B, 3, S, S)`` for
-    channels_first. ``ratio`` and ``pad`` let you map detections back to
-    original coordinates: ``x_orig = (x_letterboxed - pad_x) / ratio``.
+    channels_first. ``ratio`` and the applied ``(left, top)`` ``pad`` map
+    detections back to original coordinates -- ``x_orig = (x - pad_x) / ratio``
+    -- which is what :func:`kyolo.ops.scale_boxes` does::
+
+        batch = preprocessor(image)
+        detections = postprocessor(model(batch["images"]))
+        detections = scale_boxes(
+            detections, batch["ratio"], batch["pad"], image.shape[:2]
+        )
+
+    Note that ``ratio``/``pad`` only describe an invertible transform when
+    ``letterbox=True`` and ``scale_fill=False``; a plain resize
+    (``letterbox=False``) still reports an identity ratio.
 
     Args:
         image_size: square target side ``S``.

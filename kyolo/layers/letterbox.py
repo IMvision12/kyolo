@@ -23,7 +23,9 @@ class Letterbox(keras.layers.Layer):
         stride: Stride used when ``auto`` is ``True``.
 
     Call returns ``(image, ratio, padding)`` where ``ratio`` is ``(r, r)`` and
-    ``padding`` is ``(dw_half, dh_half)``.
+    ``padding`` is the ``(left, top)`` padding actually applied, in pixels.
+    Together they invert the transform: ``x_orig = (x_letterboxed - left) / r``.
+    See :func:`kyolo.ops.scale_boxes`.
     """
 
     def __init__(
@@ -121,9 +123,13 @@ class Letterbox(keras.layers.Layer):
         )
         final = self._fill_border(padded, top, bottom, left, right)
 
+        # Report the padding that was *actually* applied (``left``/``top``), not the
+        # unrounded half-padding: those differ by 0.5px whenever the total padding
+        # is odd, and the reported value is what callers subtract to invert the
+        # transform. Ultralytics' ``scale_boxes`` likewise subtracts round(dw - 0.1).
         ratio = ops.broadcast_to(ops.convert_to_tensor([[r, r]], dtype="float32"), (batch, 2))
         pad = ops.broadcast_to(
-            ops.convert_to_tensor([[dw_half, dh_half]], dtype="float32"), (batch, 2)
+            ops.convert_to_tensor([[float(left), float(top)]], dtype="float32"), (batch, 2)
         )
 
         if single:
