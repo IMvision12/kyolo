@@ -23,7 +23,17 @@ Every model variant is a factory function (``yolov5n``, ``yolo11s``, ``yolov9c``
 
 from __future__ import annotations
 
-from . import models
+from . import augmentation, data, models
+from .augmentation import (
+    AugmentationPipeline,
+    CopyPaste,
+    MixUp,
+    Mosaic,
+    RandomFlip,
+    RandomHSV,
+    RandomPerspective,
+)
+from .data import DataConfig, GrainDataLoader, YOLODataSource
 from .losses import BboxLoss, DistributionFocalLoss, E2EDetectionLoss, YOLODetectionLoss
 from .models import *
 from .models import MODEL_NAMES, list_models, load_pretrained_weights
@@ -33,7 +43,12 @@ from .postprocessing import (
     detections_to_list,
 )
 from .preprocessing import YOLOPreprocessor
-from .training import ProgressiveLossSchedule, YOLODetector, freeze_backbone
+from .training import (
+    CloseMosaic,
+    ProgressiveLossSchedule,
+    YOLODetector,
+    freeze_backbone,
+)
 from .version import __version__, version
 
 __all__ = [
@@ -49,9 +64,22 @@ __all__ = [
     "detections_to_list",
     "YOLODetector",
     "freeze_backbone",
+    "CloseMosaic",
     "ProgressiveLossSchedule",
     "YOLODetectionLoss",
     "E2EDetectionLoss",
     "BboxLoss",
     "DistributionFocalLoss",
+    "augmentation",
+    "AugmentationPipeline",
+    "Mosaic",
+    "MixUp",
+    "CopyPaste",
+    "RandomHSV",
+    "RandomFlip",
+    "RandomPerspective",
+    "data",
+    "DataConfig",
+    "GrainDataLoader",
+    "YOLODataSource",
 ]

@@ -34,6 +34,12 @@ different image. Decoded with the one2many head + NMS. See
   `keras.config.set_image_data_format(...)` call.
 - **Standard `keras.Model`.** Trainable with `.fit()`, fine-tunable, and
   serializable with no special machinery.
+- **Augmentation in pure Keras.** Mosaic, mixup, copy-paste, HSV jitter, random
+  perspective and flips as backend-agnostic `keras.ops` layers, not an
+  OpenCV/numpy pipeline bolted on the side.
+- **[Grain](https://github.com/google/grain) data pipeline.** Ultralytics-style
+  `data.yaml` datasets, rectangular batching and image caching, with no
+  `tf.data` (and therefore no TensorFlow) dependency.
 
 ## Supported models
 
@@ -102,11 +108,12 @@ pip install -e ".[jax]"
 pip install -e ".[torch]"
 
 # optional extras
+pip install -e ".[data]"        # grain + pyyaml, for the data pipeline
 pip install -e ".[conversion]"  # torch + ultralytics, for weight conversion
 ```
 
-Visualization (`matplotlib` + `pillow`, used by the examples) ships with the
-base install. Select the active backend with the `KERAS_BACKEND` environment
+Visualization (`matplotlib` + `pillow`) ships with the base install. Select the
+active backend with the `KERAS_BACKEND` environment
 variable **before importing anything**:
 
 ```bash
@@ -161,20 +168,15 @@ dets = keras.ops.convert_to_numpy(detections)[0]
 visualize_detections(image, dets, class_names=COCO_CLASS_NAMES, save_path="result.png")
 ```
 
-A runnable version lives in [`examples/inference.py`](examples/inference.py):
-
-```bash
-python examples/inference.py --model yolov8l --weights yolov8l.weights.h5 \
-    --image assets/samples/zidane.jpg
-```
-
 ## Training / fine-tuning
 
 `kyolo.training.YOLODetector` is a `keras.Model` subclass that plugs into
 `.fit()`. Datasets yield `(images, targets)` tuples where `targets` is
 `{"boxes", "labels", "mask"}` (boxes are xyxy pixels, labels are ints, `mask`
-marks real vs. padded boxes). `detector.detect(...)` runs the full decode + NMS
-pipeline in one call:
+marks real vs. padded boxes), which is what
+[`kyolo.data.GrainDataLoader`](#data-pipeline-and-augmentation) produces from a
+`data.yaml`. `detector.detect(...)` runs the full decode + NMS pipeline in one
+call:
 
 ```python
 import re
@@ -209,14 +211,12 @@ detector.fit(dataset, epochs=1, steps_per_epoch=2)
 detections = detector.detect(images, conf_threshold=0.25, iou_threshold=0.45)
 ```
 
-A runnable synthetic-data version lives in [`examples/train.py`](examples/train.py).
-
 ### The criterion
 
 `kyolo.losses.YOLODetectionLoss` is Ultralytics' `v8DetectionLoss`: task-aligned
 label assignment, BCE on soft alignment-scaled class targets, CIoU on the
 assigned boxes, and a third regression term whose form follows the box
-parameterization — Distribution Focal Loss where the head predicts bins
+parameterization: Distribution Focal Loss where the head predicts bins
 (`reg_max > 1`), and an image-size-normalized L1 where it predicts distances
 directly (`reg_max == 1`, i.e. YOLO26). It is logged as `dfl_loss` or `l1_loss`
 accordingly. The assigner also carries Ultralytics' stride-aware small-target
@@ -227,7 +227,176 @@ This is checked, not assumed: `tests/integration/test_loss_parity.py` diffs
 every term and the assignment itself (`fg_mask`, `target_bboxes`,
 `target_scores`) against the installed `ultralytics` package on the torch
 backend, and agrees to float32 rounding. Install `ultralytics` and run it with
-`KERAS_BACKEND=torch` — it skips otherwise.
+`KERAS_BACKEND=torch`; it skips otherwise.
+
+## Data pipeline and augmentation
+
+`pip install -e ".[data]"`. Datasets are described the Ultralytics way, as a
+`data.yaml` plus one `.txt` of normalized `class cx cy w h` boxes per image,
+and `GrainDataLoader` is a `keras.utils.PyDataset` that `.fit()` takes
+directly (it knows its own length, so no `steps_per_epoch`):
+
+```python
+import keras
+
+from kyolo.data import GrainDataLoader
+from kyolo.models import yolov8n
+from kyolo.training import CloseMosaic, YOLODetector
+
+train = GrainDataLoader(
+    "coco8.yaml", "train", batch_size=16, image_size=640, augment=True, workers=8
+)
+val = GrainDataLoader("coco8.yaml", "val", batch_size=16, image_size=640, rect=True)
+
+detector = YOLODetector(yolov8n(nc=train_nc))
+detector.compile(optimizer=keras.optimizers.Adam(1e-3))
+detector.fit(
+    train, validation_data=val, epochs=100, callbacks=[CloseMosaic(train, close_epochs=10)]
+)
+```
+
+`augment=True` is Ultralytics' `default.yaml` recipe; pass a dict to override
+individual hyperparameters (`augment={"mosaic": 0.5, "degrees": 10.0}`) or a
+ready-made `AugmentationPipeline`. `rect=True` gives each batch its own shape
+instead of padding everything to a square, and `cache="ram"` / `cache="disk"`
+avoid re-decoding.
+
+COCO and VOC annotations convert into that layout in one call:
+
+```python
+from kyolo.data import coco_to_yolo, voc_to_yolo
+
+config = coco_to_yolo("instances_train2017.json", "coco/images/train2017", write_config="coco.yaml")
+config = voc_to_yolo("VOC2012/Annotations", "VOC2012/JPEGImages")
+```
+
+### A custom dataset
+
+For annotations in some other format, the shortest route is to write them out
+once with `write_yolo_label` and point a `YOLODataSource` at the result, which
+`GrainDataLoader` then takes in place of a `data.yaml`. To keep the annotations
+where they are, read them in a Grain source of your own instead. Grain needs
+only `__len__` and `__getitem__`, and kyolo's per-sample transforms are plain
+callables, so this is the same pipeline `GrainDataLoader` composes internally:
+
+```python
+import grain
+import keras
+import numpy as np
+from PIL import Image
+
+from kyolo.augmentation import AugmentationPipeline
+from kyolo.data import LetterboxSample, PadTargets
+
+
+class MySource:
+    def __init__(self, records):
+        self.records = records  # (image path, xyxy pixel boxes, class indices)
+
+    def __len__(self):
+        return len(self.records)
+
+    def __getitem__(self, index):
+        path, boxes, labels = self.records[index]
+        return {
+            "image": np.asarray(Image.open(path).convert("RGB"), dtype="uint8"),
+            "boxes": np.asarray(boxes, dtype="float32").reshape(-1, 4),
+            "labels": np.asarray(labels, dtype="int32"),
+        }
+
+
+batches = (
+    grain.MapDataset.source(MySource(records))
+    .shuffle(seed=0)
+    .map(LetterboxSample(image_size=640))
+    .map(PadTargets(max_boxes=100))
+    .batch(16, drop_remainder=True)
+)
+augment = AugmentationPipeline.from_hyperparameters(image_size=640, max_boxes=100, seed=0)
+
+
+class MyLoader(keras.utils.PyDataset):
+    def __len__(self):
+        return len(batches)
+
+    def __getitem__(self, index):
+        batch = dict(batches[index])
+        batch["images"] = batch["images"].astype("float32") / 255.0
+        sample = augment(batch)
+        return (
+            {"images": sample["images"]},
+            {key: sample[key] for key in ("boxes", "labels", "mask")},
+        )
+
+
+detector.fit(MyLoader(workers=8), epochs=100)
+```
+
+`LetterboxSample` rescales the boxes along with the image and `PadTargets` pads
+the target lists to a fixed count, adding the `mask` that tells real boxes from
+padding. The only hard requirements on the source are the three keys above, with
+`boxes` as xyxy in pixels of the image it returns. Give the pipeline the same
+`max_boxes` as `PadTargets`, since mosaic merges four images' targets and would
+otherwise quadruple the count.
+
+### How the work is split
+
+**Grain** (rather than `tf.data`, so training a JAX or PyTorch model does not
+require a TensorFlow install) does the per-sample IO in worker threads or
+processes: decode, letterbox, pad the target lists, all plain numpy with no
+Keras backend in the workers. Its `MapDataset` is random-access, which is what
+makes exact per-epoch reshuffling and rectangular batching straightforward.
+
+**Keras** then augments the assembled batch with vectorized `keras.ops`, on the
+same backend and device as training:
+
+| Layer                | Mirrors Ultralytics'                          |
+| -------------------- | --------------------------------------------- |
+| `Mosaic`             | `Mosaic` (4-image, `2S x 2S` canvas)          |
+| `CopyPaste`          | `CopyPaste` (box-level; see below)            |
+| `RandomPerspective`  | `RandomPerspective` (+ the crop back to `S`)  |
+| `MixUp`              | `MixUp` (`Beta(32, 32)` blend)                |
+| `RandomHSV`          | `RandomHSV` (`hgain/sgain/vgain`)             |
+| `RandomFlip`         | `RandomFlip` (`flipud` / `fliplr`)            |
+
+Each takes and returns the same sample dict the loss consumes,
+`{"images", "boxes", "labels", "mask"}`, so they compose freely and can be used
+on their own:
+
+```python
+from kyolo.augmentation import AugmentationPipeline, Mosaic, RandomPerspective
+
+augment = AugmentationPipeline.from_hyperparameters(image_size=640, seed=0)
+batch = augment(batch)  # or augment(batch, training=False) to bypass
+
+batch = RandomPerspective(output_size=640)(Mosaic()(batch))  # the mosaic recipe
+```
+
+`Mosaic` outputs a canvas twice the training resolution and `RandomPerspective`
+crops back to `output_size`, exactly as Ultralytics does. Cropping (rather than
+shrinking four images into quadrants) is what preserves object scale: mosaic
+doubles the field of view instead of halving object size. Because the crop is
+configured by output size rather than by a border offset, `close_mosaic` only has
+to drop the mixing stages; nothing downstream changes.
+
+Three deliberate differences from Ultralytics, all for the sake of keeping the
+augmentations pure tensor ops:
+
+- **Mixing partners come from the batch**, not from a random dataset index. So
+  mosaic wants `batch_size >= 4` to mix four distinct images, and mixup
+  `>= 2`.
+- **Copy-paste is box-level.** Ultralytics cuts objects along segmentation
+  masks; kyolo is detection-only, so it pastes the axis-aligned crop. The
+  selection rule (reject candidates that overlap existing boxes) is kept.
+- **Images are letterboxed before mosaic**, since batching needs a fixed shape.
+  A mosaic of non-square images therefore carries their grey bars inside the
+  canvas.
+
+Quality is enforced by test, not by inspection:
+`tests/integration/test_augmentation.py` draws each box into its image as a
+bright rectangle and asserts the bright pixels still line up with the box the
+layer reports, which catches image and labels drifting apart, the failure that
+silently ruins training.
 
 ## Weight conversion
 

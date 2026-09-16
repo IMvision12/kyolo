@@ -43,7 +43,7 @@ NAME_MAPPINGS: Dict[str, Dict[str, str]] = {
 }
 
 
-def _family_of(model_name: str) -> str:
+def family_of(model_name: str) -> str:
     """Best-effort map of a concrete model name (e.g. ``yolov8n``) to a family.
 
     Falls back to an empty string (-> :data:`DEFAULT_MAPPING`) when the name is
@@ -70,4 +70,4 @@ def get_mapping(model_name: str) -> Dict[str, str]:
 
     Unknown names yield :data:`DEFAULT_MAPPING`.
     """
-    return NAME_MAPPINGS.get(_family_of(model_name), DEFAULT_MAPPING)
+    return NAME_MAPPINGS.get(family_of(model_name), DEFAULT_MAPPING)

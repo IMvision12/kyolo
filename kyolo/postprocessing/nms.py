@@ -32,7 +32,7 @@ __all__ = ["batched_nms", "top_k_detections", "detections_to_list", "NonMaxSuppr
 _PAD_SCORE = float("-inf")
 
 
-def _box_areas(boxes):
+def box_areas(boxes):
     """Areas of xyxy ``boxes`` (B,K,4) -> (B,K)."""
 
     return ops.maximum(boxes[..., 2] - boxes[..., 0], 0.0) * ops.maximum(
@@ -40,7 +40,7 @@ def _box_areas(boxes):
     )
 
 
-def _iou_row(boxes, areas, i, eps=1e-7):
+def iou_row(boxes, areas, i, eps=1e-7):
     """IoU of candidate ``i`` against every candidate: (B,K,4) -> (B,K).
 
     One row of the pairwise matrix. Computing rows on demand keeps peak memory
@@ -59,7 +59,7 @@ def _iou_row(boxes, areas, i, eps=1e-7):
     return inter / (area_i + areas - inter + eps)
 
 
-def _gather_rows(x, idx):
+def gather_rows(x, idx):
     """``take_along_axis`` over axis 1 for ``x`` of shape (B,N,C) with ``idx`` (B,K)."""
     b = ops.shape(idx)[0]
     k = ops.shape(idx)[1]
@@ -118,12 +118,12 @@ def batched_nms(
 
     scores, order = ops.top_k(scores, k=k)
     classes_f = ops.take_along_axis(classes_f, order, axis=1)
-    boxes = _gather_rows(boxes, order)
+    boxes = gather_rows(boxes, order)
     valid = scores > conf_threshold
 
     span = ops.max(boxes) - ops.min(boxes) + 1.0
     off_boxes = boxes + ops.expand_dims(classes_f * span, -1)
-    areas = _box_areas(off_boxes)
+    areas = box_areas(off_boxes)
     positions = ops.arange(k, dtype="int32")
 
     n_iter = ops.max(ops.sum(ops.cast(valid, "int32"), axis=1))
@@ -139,7 +139,7 @@ def batched_nms(
         kept_i = ops.take(keep, i, axis=1)
 
         row = ops.logical_and(
-            _iou_row(off_boxes, areas, i) > iou_threshold,
+            iou_row(off_boxes, areas, i) > iou_threshold,
             ops.expand_dims(positions > i, 0),
         )
         suppress = ops.logical_and(row, ops.expand_dims(kept_i, -1))
@@ -158,7 +158,7 @@ def batched_nms(
         boxes = ops.pad(boxes, [[0, 0], [0, pad], [0, 0]])
         classes_f = ops.pad(classes_f, [[0, 0], [0, pad]])
     top_scores, idx = ops.top_k(kept_scores, k=max_detections)
-    sel_boxes = _gather_rows(boxes, idx)
+    sel_boxes = gather_rows(boxes, idx)
     sel_cls = ops.take_along_axis(classes_f, idx, axis=1)
     valid_out = ops.cast(top_scores >= 0.0, "float32")
 

@@ -42,7 +42,7 @@ class YOLODetector(keras.Model):
         self.end_to_end = (
             end_to_end if end_to_end is not None else getattr(model, "end_to_end", False)
         )
-        self.loss_fn = loss or self._default_loss(model)
+        self.loss_fn = loss or self.default_loss(model)
 
         self._box = keras.metrics.Mean(name="box_loss")
         self._cls = keras.metrics.Mean(name="cls_loss")
@@ -56,7 +56,7 @@ class YOLODetector(keras.Model):
             data_format=getattr(model, "data_format", None),
         )
 
-    def _default_loss(self, model):
+    def default_loss(self, model):
         """Build the criterion the wrapped model asks for.
 
         Loss settings that follow from the architecture (the gains, the TAL
@@ -76,12 +76,12 @@ class YOLODetector(keras.Model):
             return E2EDetectionLoss(**config)
         return YOLODetectionLoss(**config)
 
-    def _images(self, x):
+    def images(self, x):
         if isinstance(x, dict):
             return x["images"]
         return x
 
-    def _targets(self, x, y):
+    def targets(self, x, y):
         src = y if y is not None else x
         return {
             "boxes": src["boxes"],
@@ -90,10 +90,10 @@ class YOLODetector(keras.Model):
         }
 
     def call(self, inputs, training=False):
-        return self.body(self._images(inputs), training=training)
+        return self.body(self.images(inputs), training=training)
 
     def compute_loss(self, x=None, y=None, y_pred=None, sample_weight=None, training=True):
-        targets = self._targets(x, y)
+        targets = self.targets(x, y)
         losses = self.loss_fn(y_pred, targets)
         self._box.update_state(losses["box"])
         self._cls.update_state(losses["cls"])

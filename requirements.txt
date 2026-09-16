@@ -22,7 +22,7 @@ torch>=2.2
 torchvision>=0.17
 ultralytics>=8.2.0
 
-# --- Visualization / examples (optional) -----------------------------------
+# --- Visualization (optional) ----------------------------------------------
 matplotlib>=3.7
 pillow>=10.0
 tqdm>=4.66

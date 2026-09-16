@@ -148,7 +148,7 @@ def finalize_detector(
     return model
 
 
-def _class_branch_layers(model):
+def class_branch_layers(model):
     """The head's classification-branch layers (``<head>.cv3.*``) that hold weights.
 
     These are the only layers whose weight shapes depend on ``nc`` (the final
@@ -160,7 +160,7 @@ def _class_branch_layers(model):
     return [l for l in model.layers if l.name.startswith(f"{prefix}-cv3-") and l.weights]
 
 
-def _weights_h5_path(path, tmpdir):
+def weights_h5_path(path, tmpdir):
     """Return a ``.weights.h5`` path for ``path``, extracting it from a ``.keras`` zip."""
     if not path.endswith(".keras"):
         return path
@@ -200,7 +200,7 @@ def load_pretrained_weights(model, weights, verbose=True):
         model.load_weights(weights)
         return {"reinitialized": []}
     except ValueError as strict_error:
-        cls_layers = _class_branch_layers(model)
+        cls_layers = class_branch_layers(model)
         if not cls_layers:
             raise
         first_error = strict_error
@@ -208,7 +208,7 @@ def load_pretrained_weights(model, weights, verbose=True):
     with tempfile.TemporaryDirectory() as tmpdir, warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Skipping nested container")
         warnings.filterwarnings("ignore", message="A total of .* objects could not be loaded")
-        h5_path = _weights_h5_path(weights, tmpdir)
+        h5_path = weights_h5_path(weights, tmpdir)
 
         try:
             model.load_weights(h5_path, objects_to_skip=cls_layers)

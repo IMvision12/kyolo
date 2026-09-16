@@ -71,12 +71,12 @@ class BboxLoss:
             target_ltrb = bbox2dist(anchors, target_bboxes, self.reg_max)
             dist = self.dfl(pred_bins, target_ltrb)
         else:
-            dist = self._normalized_l1(pred_dist, anchors, target_bboxes, imgsz, stride)
+            dist = self.normalized_l1(pred_dist, anchors, target_bboxes, imgsz, stride)
 
         dist_loss = ops.sum(dist * weight) / target_scores_sum
         return box_loss, dist_loss
 
-    def _normalized_l1(self, pred_dist, anchors, target_bboxes, imgsz, stride):
+    def normalized_l1(self, pred_dist, anchors, target_bboxes, imgsz, stride):
         """Mean absolute LTRB error in image-fraction units -> ``(B, A)``.
 
         Distances arrive in stride units, where the same absolute error counts

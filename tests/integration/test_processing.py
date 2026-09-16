@@ -36,7 +36,7 @@ CHANNELS = 4 * REG_MAX + NC
 MAX_DETECTIONS = 300
 
 
-def _np(x):
+def as_numpy(x):
     return ops.convert_to_numpy(x)
 
 
@@ -64,8 +64,8 @@ def test_preprocessor_scales_uint8_and_0_255_floats_to_unit_range():
     pre = YOLOPreprocessor(image_size=64)
     uint8_img = np.full((64, 64, 3), 200, dtype="uint8")
     float_img = np.full((64, 64, 3), 200.0, dtype="float32")
-    np.testing.assert_allclose(_np(pre(uint8_img)["images"]), 200 / 255.0, rtol=1e-5)
-    np.testing.assert_allclose(_np(pre(float_img)["images"]), 200 / 255.0, rtol=1e-5)
+    np.testing.assert_allclose(as_numpy(pre(uint8_img)["images"]), 200 / 255.0, rtol=1e-5)
+    np.testing.assert_allclose(as_numpy(pre(float_img)["images"]), 200 / 255.0, rtol=1e-5)
 
 
 def test_preprocessor_auto_range_is_per_image():
@@ -74,7 +74,7 @@ def test_preprocessor_auto_range_is_per_image():
     batch = np.stack(
         [np.full((64, 64, 3), 0.5, dtype="float32"), np.full((64, 64, 3), 200.0, dtype="float32")]
     )
-    images = _np(pre(batch)["images"])
+    images = as_numpy(pre(batch)["images"])
     np.testing.assert_allclose(images[0], 0.5, rtol=1e-5)
     np.testing.assert_allclose(images[1], 200 / 255.0, rtol=1e-5)
 
@@ -84,16 +84,16 @@ def test_preprocessor_explicit_input_range_overrides_heuristic():
     bright_unit = np.full((64, 64, 3), 200.0, dtype="float32")
     forced_255 = YOLOPreprocessor(image_size=64, input_range=(0, 255))
     forced_unit = YOLOPreprocessor(image_size=64, input_range=(0, 1))
-    np.testing.assert_allclose(_np(forced_255(dark_0_255)["images"]), 0.5 / 255.0, rtol=1e-5)
-    np.testing.assert_allclose(_np(forced_unit(bright_unit)["images"]), 200.0, rtol=1e-5)
+    np.testing.assert_allclose(as_numpy(forced_255(dark_0_255)["images"]), 0.5 / 255.0, rtol=1e-5)
+    np.testing.assert_allclose(as_numpy(forced_unit(bright_unit)["images"]), 200.0, rtol=1e-5)
     with pytest.raises(ValueError):
         YOLOPreprocessor(image_size=64, input_range=(0, 100))
 
 
 def test_preprocessor_normalize_false_leaves_pixels_and_pad_untouched():
     image = np.full((32, 64, 3), 200.0, dtype="float32")
-    raw = _np(YOLOPreprocessor(image_size=64, normalize=False)(image)["images"])[0]
-    unit = _np(YOLOPreprocessor(image_size=64, normalize=True)(image)["images"])[0]
+    raw = as_numpy(YOLOPreprocessor(image_size=64, normalize=False)(image)["images"])[0]
+    unit = as_numpy(YOLOPreprocessor(image_size=64, normalize=True)(image)["images"])[0]
 
     assert raw[32, 0, 0] == pytest.approx(200.0)
     assert raw[0, 0, 0] == pytest.approx(114.0)
@@ -104,11 +104,11 @@ def test_preprocessor_normalize_false_leaves_pixels_and_pad_untouched():
 def test_preprocessor_mean_std_only_when_normalizing():
     image = np.full((64, 64, 3), 255.0, dtype="float32")
     with_norm = YOLOPreprocessor(image_size=64, mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-    np.testing.assert_allclose(_np(with_norm(image)["images"]), 1.0, rtol=1e-5)
+    np.testing.assert_allclose(as_numpy(with_norm(image)["images"]), 1.0, rtol=1e-5)
     without = YOLOPreprocessor(
         image_size=64, normalize=False, mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)
     )
-    np.testing.assert_allclose(_np(without(image)["images"]), 255.0, rtol=1e-5)
+    np.testing.assert_allclose(as_numpy(without(image)["images"]), 255.0, rtol=1e-5)
 
 
 def test_preprocessor_round_trips_through_config():
@@ -120,7 +120,7 @@ def test_preprocessor_round_trips_through_config():
 _ASPECT_RATIOS = [(480, 640), (1080, 810), (333, 500), (427, 640), (721, 1281), (500, 375)]
 
 
-def _reference_letterbox(h, w, size=640):
+def reference_letterbox(h, w, size=640):
     """Ultralytics ``LetterBox`` geometry: ratio and the applied (left, top) pad."""
     r = min(size / h, size / w)
     dw = (size - int(round(w * r))) / 2
@@ -138,9 +138,9 @@ def test_preprocessor_letterbox_geometry_matches_reference(h, w):
     subtract to invert the transform.
     """
     out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
-    r, pad = _reference_letterbox(h, w)
-    np.testing.assert_allclose(_np(out["ratio"])[0], [r, r], rtol=1e-6)
-    np.testing.assert_allclose(_np(out["pad"])[0], pad, atol=0)
+    r, pad = reference_letterbox(h, w)
+    np.testing.assert_allclose(as_numpy(out["ratio"])[0], [r, r], rtol=1e-6)
+    np.testing.assert_allclose(as_numpy(out["pad"])[0], pad, atol=0)
     assert tuple(out["images"].shape) == (1, 640, 640, 3)
 
 
@@ -186,7 +186,9 @@ def test_preprocessor_traceable_in_graph_mode():
     static = tf.function(
         lambda x: pre(x), input_signature=[tf.TensorSpec([2, 40, 50, 3], tf.float32)]
     )
-    np.testing.assert_allclose(_np(static(image)["images"]), _np(pre(image)["images"]), atol=1e-5)
+    np.testing.assert_allclose(
+        as_numpy(static(image)["images"]), as_numpy(pre(image)["images"]), atol=1e-5
+    )
 
     dynamic = tf.function(
         lambda x: pre(x), input_signature=[tf.TensorSpec([None, 40, 50, 3], tf.float32)]
@@ -243,10 +245,10 @@ def test_end_to_end_pipeline_exports_to_saved_model():
         reloaded = tf.saved_model.load(path)
         served = reloaded.serve(np.random.rand(1, 40, 50, 3).astype("float32"))
         assert tuple(served.shape) == (1, 10, 6)
-        assert np.isfinite(_np(served)).all()
+        assert np.isfinite(as_numpy(served)).all()
 
 
-def _reference_scale_boxes(boxes, ratio, pad, orig_shape):
+def reference_scale_boxes(boxes, ratio, pad, orig_shape):
     """Port of Ultralytics' ``scale_boxes`` + ``clip_boxes`` (numpy, non-mutating)."""
     out = np.array(boxes, dtype="float64", copy=True)
     out[..., 0] -= pad[0]
@@ -267,11 +269,11 @@ def test_scale_boxes_matches_reference(h, w):
     """Identical to Ultralytics' ``scale_boxes`` for the preprocessor's ratio/pad."""
     rng = np.random.default_rng(0)
     out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
-    ratio, pad = _np(out["ratio"])[0], _np(out["pad"])[0]
+    ratio, pad = as_numpy(out["ratio"])[0], as_numpy(out["pad"])[0]
 
     boxes = np.sort(rng.uniform(-40, 700, size=(16, 4)).astype("float32"), axis=-1)
-    got = _np(scale_boxes(boxes, ratio, pad, (h, w)))
-    want = _reference_scale_boxes(boxes, ratio, pad, (h, w))
+    got = as_numpy(scale_boxes(boxes, ratio, pad, (h, w)))
+    want = reference_scale_boxes(boxes, ratio, pad, (h, w))
     np.testing.assert_allclose(got, want, atol=1e-3)
 
 
@@ -283,12 +285,14 @@ def test_scale_boxes_round_trips_the_preprocessor(h, w):
     the unrounded half-padding every odd-padding image was off by 0.5px.
     """
     out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
-    ratio, pad = _np(out["ratio"])[0], _np(out["pad"])[0]
+    ratio, pad = as_numpy(out["ratio"])[0], as_numpy(out["pad"])[0]
 
     rng = np.random.default_rng(1)
     orig = np.sort(rng.uniform(5, min(h, w) - 5, size=(64, 4)).astype("float32"), axis=-1)
     letterboxed = orig * np.tile(ratio, 2) + np.tile(pad, 2)
-    np.testing.assert_allclose(_np(scale_boxes(letterboxed, ratio, pad, (h, w))), orig, atol=1e-3)
+    np.testing.assert_allclose(
+        as_numpy(scale_boxes(letterboxed, ratio, pad, (h, w))), orig, atol=1e-3
+    )
 
 
 def test_scale_boxes_passes_through_score_and_class():
@@ -298,7 +302,9 @@ def test_scale_boxes_passes_through_score_and_class():
         dtype="float32",
     )
     out = YOLOPreprocessor(image_size=640)(np.zeros((427, 640, 3), "float32"))
-    scaled = _np(scale_boxes(detections, _np(out["ratio"]), _np(out["pad"]), (427, 640)))
+    scaled = as_numpy(
+        scale_boxes(detections, as_numpy(out["ratio"]), as_numpy(out["pad"]), (427, 640))
+    )
     assert scaled.shape == detections.shape
     np.testing.assert_allclose(scaled[0, 0, 4:], [0.9, 17.0])
 
@@ -310,28 +316,28 @@ def test_scale_boxes_accepts_per_image_ratio_pad_and_shape():
     pre = YOLOPreprocessor(image_size=640)
     first = pre(np.zeros((427, 640, 3), "float32"))
     second = pre(np.zeros((1080, 810, 3), "float32"))
-    ratio = np.concatenate([_np(first["ratio"]), _np(second["ratio"])], axis=0)
-    pad = np.concatenate([_np(first["pad"]), _np(second["pad"])], axis=0)
+    ratio = np.concatenate([as_numpy(first["ratio"]), as_numpy(second["ratio"])], axis=0)
+    pad = np.concatenate([as_numpy(first["pad"]), as_numpy(second["pad"])], axis=0)
     boxes = np.tile(np.array([[[10.0, 20.0, 400.0, 500.0]]], "float32"), (2, 1, 1))
     shapes = [(427, 640), (1080, 810)]
 
-    got = _np(scale_boxes(boxes, ratio, pad, np.array(shapes, "float32")))
+    got = as_numpy(scale_boxes(boxes, ratio, pad, np.array(shapes, "float32")))
     for i, shape in enumerate(shapes):
-        want = _reference_scale_boxes(boxes[i], ratio[i], pad[i], shape)
+        want = reference_scale_boxes(boxes[i], ratio[i], pad[i], shape)
         np.testing.assert_allclose(got[i], want, atol=1e-3)
 
 
 @pytest.mark.parametrize("shape", [(4,), (7, 4), (2, 7, 4), (2, 7, 6)])
 def test_scale_boxes_preserves_shape(shape):
     boxes = np.zeros(shape, dtype="float32")
-    assert _np(scale_boxes(boxes, [1.0, 1.0], [0.0, 0.0], (10, 10))).shape == shape
+    assert as_numpy(scale_boxes(boxes, [1.0, 1.0], [0.0, 0.0], (10, 10))).shape == shape
 
 
 def test_clip_boxes_bounds_to_image():
     boxes = np.array([[-50.0, -50.0, 5000.0, 5000.0]], dtype="float32")
-    np.testing.assert_allclose(_np(clip_boxes(boxes, (100, 200)))[0], [0, 0, 200, 100])
+    np.testing.assert_allclose(as_numpy(clip_boxes(boxes, (100, 200)))[0], [0, 0, 200, 100])
 
-    unclipped = _np(scale_boxes(boxes, [1.0, 1.0], [0.0, 0.0], clip=False))
+    unclipped = as_numpy(scale_boxes(boxes, [1.0, 1.0], [0.0, 0.0], clip=False))
     np.testing.assert_allclose(unclipped[0], [-50.0, -50.0, 5000.0, 5000.0])
 
 
@@ -370,17 +376,17 @@ def test_postprocessor_output_shape():
     assert shape[2] == 6
 
 
-def _reference_nms(boxes, scores, classes, iou_threshold, conf_threshold, max_detections):
+def reference_nms(boxes, scores, classes, iou_threshold, conf_threshold, max_detections):
     """Plain-Python greedy class-aware NMS; returns kept indices in score order."""
 
-    def _area(r):
+    def area(r):
         return (r[2] - r[0]) * (r[3] - r[1])
 
     def iou(a, b):
         x1, y1 = max(a[0], b[0]), max(a[1], b[1])
         x2, y2 = min(a[2], b[2]), min(a[3], b[3])
         inter = max(x2 - x1, 0.0) * max(y2 - y1, 0.0)
-        return inter / (_area(a) + _area(b) - inter + 1e-7)
+        return inter / (area(a) + area(b) - inter + 1e-7)
 
     keep = []
     for i in np.argsort(-scores, kind="stable"):
@@ -393,7 +399,7 @@ def _reference_nms(boxes, scores, classes, iou_threshold, conf_threshold, max_de
     return keep
 
 
-def _clustered_boxes(rng, batch, n, clusters=40, num_classes=3):
+def clustered_boxes(rng, batch, n, clusters=40, num_classes=3):
     """Boxes jittered around cluster centres so plenty of them overlap."""
     centres = rng.uniform(50, 600, (batch, clusters, 2))
     boxes = np.zeros((batch, n, 4), np.float32)
@@ -412,11 +418,11 @@ def _clustered_boxes(rng, batch, n, clusters=40, num_classes=3):
 def test_batched_nms_matches_reference(max_detections):
     """The while_loop sweep is exact greedy NMS (also when max_det exceeds N)."""
     rng = np.random.default_rng(0)
-    boxes, scores, classes = _clustered_boxes(rng, batch=2, n=400)
-    out = _np(batched_nms(boxes, scores, classes, 0.5, max_detections, 0.25))
+    boxes, scores, classes = clustered_boxes(rng, batch=2, n=400)
+    out = as_numpy(batched_nms(boxes, scores, classes, 0.5, max_detections, 0.25))
     assert out.shape == (2, max_detections, 6)
     for b in range(2):
-        keep = _reference_nms(boxes[b], scores[b], classes[b], 0.5, 0.25, max_detections)
+        keep = reference_nms(boxes[b], scores[b], classes[b], 0.5, 0.25, max_detections)
         got = out[b][out[b][:, 4] > 0]
         expected = np.concatenate(
             [boxes[b][keep], scores[b][keep, None], classes[b][keep, None].astype(np.float32)],
@@ -431,16 +437,16 @@ def test_batched_nms_matches_reference(max_detections):
 def test_batched_nms_pre_nms_topk_limits_candidates():
     """With a cap, NMS runs over exactly the top-K scoring boxes of each image."""
     rng = np.random.default_rng(2)
-    boxes, scores, classes = _clustered_boxes(rng, batch=2, n=400)
-    out = _np(batched_nms(boxes, scores, classes, 0.5, 30, 0.0, pre_nms_topk=100))
+    boxes, scores, classes = clustered_boxes(rng, batch=2, n=400)
+    out = as_numpy(batched_nms(boxes, scores, classes, 0.5, 30, 0.0, pre_nms_topk=100))
     for b in range(2):
         top = np.argsort(-scores[b], kind="stable")[:100]
-        keep = _reference_nms(boxes[b][top], scores[b][top], classes[b][top], 0.5, 0.0, 30)
+        keep = reference_nms(boxes[b][top], scores[b][top], classes[b][top], 0.5, 0.0, 30)
         got = out[b][out[b][:, 4] > 0]
         np.testing.assert_allclose(got[:, :4], boxes[b][top][keep], atol=1e-4)
 
 
-def _self_suppressing_then_separated(n_dup=1200, n_sep=1200):
+def self_suppressing_then_separated(n_dup=1200, n_sep=1200):
     """Many near-duplicate top scorers hiding well-separated lower scorers.
 
     The pre-NMS cap is applied *before* the sweep, so with ``pre_nms_topk`` at or
@@ -475,10 +481,10 @@ def test_batched_nms_keeps_candidates_beyond_the_old_1000_cap():
     sweep. The new default (Ultralytics' ``max_nms=30000``) is effectively no cap
     at ordinary anchor counts.
     """
-    boxes, scores, classes = _self_suppressing_then_separated()
+    boxes, scores, classes = self_suppressing_then_separated()
 
     def kept(out):
-        return int((_np(out)[0, :, 4] > 0).sum())
+        return int((as_numpy(out)[0, :, 4] > 0).sum())
 
     assert kept(batched_nms(boxes, scores, classes, 0.5, 300, 0.25)) == 300
 
@@ -493,11 +499,11 @@ def test_batched_nms_early_exit_matches_full_sweep():
     every image, so the result must still match plain greedy NMS.
     """
     rng = np.random.default_rng(7)
-    boxes, scores, classes = _clustered_boxes(rng, batch=3, n=900)
+    boxes, scores, classes = clustered_boxes(rng, batch=3, n=900)
     max_detections = 25
-    out = _np(batched_nms(boxes, scores, classes, 0.5, max_detections, 0.05))
+    out = as_numpy(batched_nms(boxes, scores, classes, 0.5, max_detections, 0.05))
     for b in range(3):
-        keep = _reference_nms(boxes[b], scores[b], classes[b], 0.5, 0.05, max_detections)
+        keep = reference_nms(boxes[b], scores[b], classes[b], 0.5, 0.05, max_detections)
         assert len(keep) == max_detections, "fixture must over-fill max_detections"
         got = out[b][out[b][:, 4] > 0]
         np.testing.assert_allclose(got[:, :4], boxes[b][keep], atol=1e-4)
@@ -505,11 +511,11 @@ def test_batched_nms_early_exit_matches_full_sweep():
 
 def test_batched_nms_handles_negative_coordinates_and_empty_images():
     rng = np.random.default_rng(1)
-    boxes, scores, classes = _clustered_boxes(rng, batch=2, n=100)
+    boxes, scores, classes = clustered_boxes(rng, batch=2, n=100)
     boxes -= 400.0
     scores[1] = 0.0
-    out = _np(batched_nms(boxes, scores, classes, 0.5, 30, 0.25))
-    keep = _reference_nms(boxes[0], scores[0], classes[0], 0.5, 0.25, 30)
+    out = as_numpy(batched_nms(boxes, scores, classes, 0.5, 30, 0.25))
+    keep = reference_nms(boxes[0], scores[0], classes[0], 0.5, 0.25, 30)
     got = out[0][out[0][:, 4] > 0]
     np.testing.assert_allclose(got[:, :4], boxes[0][keep], atol=1e-4)
     assert not out[1].any()
@@ -528,7 +534,7 @@ def test_batched_nms_with_dynamic_anchor_count(n):
     import tensorflow as tf
 
     rng = np.random.default_rng(3)
-    boxes, scores, classes = _clustered_boxes(rng, batch=2, n=n)
+    boxes, scores, classes = clustered_boxes(rng, batch=2, n=n)
 
     traced = tf.function(
         lambda b, s, c: batched_nms(b, s, c, 0.5, 50, 0.25, 1000),
@@ -538,8 +544,8 @@ def test_batched_nms_with_dynamic_anchor_count(n):
             tf.TensorSpec([None, None], tf.int32),
         ],
     )
-    dynamic = _np(traced(boxes, scores, classes))
-    static = _np(batched_nms(boxes, scores, classes, 0.5, 50, 0.25, 1000))
+    dynamic = as_numpy(traced(boxes, scores, classes))
+    static = as_numpy(batched_nms(boxes, scores, classes, 0.5, 50, 0.25, 1000))
 
     assert np.isfinite(dynamic).all()
     np.testing.assert_allclose(dynamic, static, atol=1e-4)
@@ -562,8 +568,8 @@ def test_postprocessor_with_dynamic_feature_shapes():
             rng.normal(0, 1, (1, size // s, size // s, CHANNELS)).astype("float32")
             for s in (8, 16, 32)
         ]
-        dynamic = _np(traced(feats))
-        static = _np(post([ops.convert_to_tensor(f) for f in feats]))
+        dynamic = as_numpy(traced(feats))
+        static = as_numpy(post([ops.convert_to_tensor(f) for f in feats]))
         assert dynamic.shape == (1, 50, 6)
         np.testing.assert_allclose(dynamic, static, atol=1e-4)
 
