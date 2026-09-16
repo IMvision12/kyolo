@@ -37,13 +37,13 @@ def model():
     return yolov8n(nc=80, input_shape=(64, 64, 3), deploy=True)
 
 
-def _torch_key(var):
+def torch_key(var):
     """Reproduce the Torch key that the name-based transfer derives for ``var``."""
     layer_path, leaf = var.path.rsplit("/", 1)
     return f"{layer_path.replace('-', '.')}.{_SUFFIX_MAP.get(leaf, leaf)}"
 
 
-def _to_torch_layout(array, path):
+def to_torch_layout(array, path):
     """Invert the Keras<-Torch transpose so the fixture has Torch-side shapes."""
     if path.endswith("kernel") and array.ndim == 4:
         return np.transpose(array, (3, 2, 0, 1))
@@ -52,23 +52,23 @@ def _to_torch_layout(array, path):
     return array
 
 
-def _complete_state(model):
+def complete_state(model):
     """A complete, correctly-named Torch state dict for ``model``."""
     return {
-        _torch_key(v): _to_torch_layout(np.asarray(v).astype("float32") + 1.0, v.path)
+        torch_key(v): to_torch_layout(np.asarray(v).astype("float32") + 1.0, v.path)
         for v in model.weights
     }
 
 
-def _write_pt(state, directory):
+def write_pt(state, directory):
     path = os.path.join(str(directory), "checkpoint.pt")
     torch.save({k: torch.from_numpy(np.ascontiguousarray(v)) for k, v in state.items()}, path)
     return path
 
 
-def _convert(model, state, directory, **kwargs):
+def convert(model, state, directory, **kwargs):
     """Run a conversion, returning the report and whether a file was written."""
-    source = _write_pt(state, directory)
+    source = write_pt(state, directory)
     output = os.path.join(str(directory), "converted.weights.h5")
     report = convert_weights(model, source, output_path=output, verbose=False, **kwargs)
     return report, os.path.exists(output)
@@ -99,7 +99,7 @@ def test_csp_build_order_differs_from_reference_registration(model):
 
 def test_complete_conversion_saves(model, tmp_path):
     """The happy path: every variable filled, every tensor read, file written."""
-    report, saved = _convert(model, _complete_state(model), tmp_path)
+    report, saved = convert(model, complete_state(model), tmp_path)
     assert saved
     assert report["skipped"] == 0
     assert report["unclaimed"] == []
@@ -112,19 +112,19 @@ def test_zero_match_conversion_raises_without_writing(model, tmp_path):
     The result loads without complaint and predicts noise, and the only previous
     signal was a 'transferred 0/297' line scrolling past among other prints.
     """
-    renamed = {f"backbone.{i}.weight": v for i, v in enumerate(_complete_state(model).values())}
+    renamed = {f"backbone.{i}.weight": v for i, v in enumerate(complete_state(model).values())}
     with pytest.raises(ValueError, match="matched nothing"):
-        _convert(model, renamed, tmp_path)
+        convert(model, renamed, tmp_path)
     assert not os.path.exists(os.path.join(str(tmp_path), "converted.weights.h5"))
 
 
 def test_partial_conversion_raises_without_writing(model, tmp_path):
     """A few unmatched variables are enough to refuse the save."""
-    state = _complete_state(model)
+    state = complete_state(model)
     for key in list(state)[:5]:
         del state[key]
     with pytest.raises(ValueError, match="incomplete"):
-        _convert(model, state, tmp_path)
+        convert(model, state, tmp_path)
     assert not os.path.exists(os.path.join(str(tmp_path), "converted.weights.h5"))
 
 
@@ -134,19 +134,19 @@ def test_unclaimed_torch_tensors_are_reported(model, tmp_path):
     Without this a partially-overlapping checkpoint is indistinguishable from a
     correct one, since the Keras-side count is perfect.
     """
-    state = _complete_state(model)
+    state = complete_state(model)
     state["model.99.unexpected.weight"] = np.zeros((4, 4), "float32")
     state["model.98.alsounexpected.bias"] = np.zeros((4,), "float32")
     with pytest.raises(ValueError, match="never used"):
-        _convert(model, state, tmp_path)
+        convert(model, state, tmp_path)
     assert not os.path.exists(os.path.join(str(tmp_path), "converted.weights.h5"))
 
 
 def test_shape_mismatch_raises_without_writing(model, tmp_path):
-    state = _complete_state(model)
+    state = complete_state(model)
     state[next(iter(state))] = np.zeros((7, 7, 7, 7), "float32")
     with pytest.raises(ValueError, match="incomplete"):
-        _convert(model, state, tmp_path)
+        convert(model, state, tmp_path)
     assert not os.path.exists(os.path.join(str(tmp_path), "converted.weights.h5"))
 
 
@@ -157,31 +157,31 @@ def test_dfl_projection_does_not_trip_the_gate(model, tmp_path):
     claims ``...dfl.conv.weight``. It must not be counted as unclaimed or every
     genuine conversion would now fail.
     """
-    state = _complete_state(model)
+    state = complete_state(model)
     state["model.22.dfl.conv.weight"] = np.arange(16, dtype="float32").reshape(1, 16, 1, 1)
-    report, saved = _convert(model, state, tmp_path)
+    report, saved = convert(model, state, tmp_path)
     assert saved
     assert report["unclaimed"] == []
 
 
 def test_allow_partial_warns_and_saves(model, tmp_path):
     """The escape hatch stays available, but it is loud."""
-    state = _complete_state(model)
+    state = complete_state(model)
     for key in list(state)[:5]:
         del state[key]
     with pytest.warns(RuntimeWarning, match="partially-converted"):
-        report, saved = _convert(model, state, tmp_path, allow_partial=True)
+        report, saved = convert(model, state, tmp_path, allow_partial=True)
     assert saved
     assert report["skipped"] == 5
 
 
 def test_error_message_names_the_offending_variables(model, tmp_path):
     """The message has to be actionable, not just a count."""
-    state = _complete_state(model)
+    state = complete_state(model)
     dropped = list(state)[0]
     del state[dropped]
     with pytest.raises(ValueError) as excinfo:
-        _convert(model, state, tmp_path)
+        convert(model, state, tmp_path)
     message = str(excinfo.value)
     assert dropped in message
     assert "load_pretrained_weights" in message

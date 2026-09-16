@@ -49,9 +49,11 @@ tensorflow = ["tensorflow>=2.16"]
 jax = ["jax>=0.4.28"]
 torch = ["torch>=2.2", "torchvision>=0.17"]
 
+data = ["grain>=0.2.12", "pyyaml>=6.0"]
+
 conversion = ["torch>=2.2", "ultralytics>=8.2.0"]
 
-tests = ["pytest", "pytest-cov"]
+tests = ["pytest", "pytest-cov", "grain>=0.2.12", "pyyaml>=6.0"]
 
 [project.urls]
 homepage = "https://github.com/IMvision12/kyolo"

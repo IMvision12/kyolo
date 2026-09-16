@@ -35,7 +35,7 @@ def xyxy2xywh(boxes):
     return ops.concatenate([cxcy, wh], axis=-1)
 
 
-def _split_box_columns(boxes):
+def split_box_columns(boxes):
     """Split ``(..., 4+)`` into the xyxy block and any trailing passthrough columns.
 
     Letting callers keep extra columns means a ``(B, N, 6)``
@@ -54,7 +54,7 @@ def _split_box_columns(boxes):
     return boxes[..., :4], boxes[..., 4:] if columns > 4 else None
 
 
-def _align_pair(values, rank, name):
+def align_pair(values, rank, name):
     """Reshape a ``(2,)`` or ``(B, 2)`` parameter to broadcast over rank-``rank`` boxes."""
     values = ops.convert_to_tensor(values, dtype="float32")
     ndim = len(values.shape)
@@ -83,8 +83,8 @@ def clip_boxes(boxes, shape):
     Returns:
         A tensor shaped like ``boxes``.
     """
-    xyxy, extra = _split_box_columns(boxes)
-    hw = _align_pair(shape, len(xyxy.shape), "shape")
+    xyxy, extra = split_box_columns(boxes)
+    hw = align_pair(shape, len(xyxy.shape), "shape")
     height, width = hw[..., :1], hw[..., 1:]
     upper = ops.concatenate([width, height, width, height], axis=-1)
 
@@ -124,10 +124,10 @@ def scale_boxes(boxes, ratio, pad, orig_shape=None, clip=True):
     Returns:
         A tensor shaped like ``boxes``, in original-image pixel coordinates.
     """
-    xyxy, extra = _split_box_columns(boxes)
+    xyxy, extra = split_box_columns(boxes)
     rank = len(xyxy.shape)
-    gain = _align_pair(ratio, rank, "ratio")
-    offset = _align_pair(pad, rank, "pad")
+    gain = align_pair(ratio, rank, "ratio")
+    offset = align_pair(pad, rank, "pad")
 
     xyxy = (xyxy - ops.concatenate([offset, offset], axis=-1)) / ops.concatenate(
         [gain, gain], axis=-1

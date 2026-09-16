@@ -35,7 +35,7 @@ BATCH = 2
 MAX_BOXES = 5
 
 
-def _synthetic_batch(rng, nc=NC):
+def synthetic_batch(rng, nc=NC):
     """One ``(images, targets)`` batch of random images with random xyxy boxes."""
     images = rng.random((BATCH, SIZE, SIZE, 3), dtype=np.float32)
     boxes = np.zeros((BATCH, MAX_BOXES, 4), np.float32)
@@ -51,10 +51,10 @@ def _synthetic_batch(rng, nc=NC):
     return images, {"boxes": boxes, "labels": labels, "mask": mask}
 
 
-def _generator(seed=0):
+def generator(seed=0):
     rng = np.random.default_rng(seed)
     while True:
-        yield _synthetic_batch(rng)
+        yield synthetic_batch(rng)
 
 
 @pytest.fixture(scope="module")
@@ -62,14 +62,14 @@ def trained_detector():
     """A detector that has been through ``fit()`` (so its state is built)."""
     detector = YOLODetector(yolov8n(nc=NC, input_shape=(SIZE, SIZE, 3)))
     detector.compile(optimizer=keras.optimizers.Adam(1e-3))
-    history = detector.fit(_generator(), epochs=2, steps_per_epoch=2, verbose=0)
+    history = detector.fit(generator(), epochs=2, steps_per_epoch=2, verbose=0)
     return detector, history
 
 
 def test_detect_works_after_fit(trained_detector):
     """``detect()`` must not try to add state to an already-built model."""
     detector, _ = trained_detector
-    images, _ = _synthetic_batch(np.random.default_rng(1))
+    images, _ = synthetic_batch(np.random.default_rng(1))
     dets = detector.detect(images, conf_threshold=0.1, iou_threshold=0.5, max_detections=40)
     assert tuple(dets.shape) == (BATCH, 40, 6)
 
@@ -84,7 +84,7 @@ def test_loss_is_reported_and_reset(trained_detector):
     assert set(history.history) == {"loss", "box_loss", "cls_loss", "dfl_loss"}
 
     assert int(ops.convert_to_numpy(detector._loss_tracker.count)) == 2 * BATCH
-    result = detector.evaluate(_generator(seed=3), steps=1, return_dict=True, verbose=0)
+    result = detector.evaluate(generator(seed=3), steps=1, return_dict=True, verbose=0)
     assert "loss" in result and np.isfinite(result["loss"])
 
 
@@ -92,7 +92,7 @@ def test_assigner_targets_carry_no_gradient():
     """TAL targets are constants w.r.t. the predictions (Ultralytics runs it under no_grad)."""
     loss = YOLODetectionLoss(nc=NC, reg_max=16, strides=(8, 16, 32))
     rng = np.random.default_rng(0)
-    _, targets = _synthetic_batch(rng)
+    _, targets = synthetic_batch(rng)
     shapes = [(SIZE // s, SIZE // s) for s in loss.strides]
     feats = [rng.normal(size=(BATCH, h, w, loss.no)).astype("float32") for h, w in shapes]
 
@@ -100,7 +100,7 @@ def test_assigner_targets_carry_no_gradient():
         flat = ops.concatenate([ops.reshape(f, (BATCH, -1, loss.no)) for f in fs], axis=1)
         pred_dist, pred_scores = flat[..., : loss.no - NC], flat[..., loss.no - NC :]
         anchors, stride_t = make_anchors(shapes, loss.strides)
-        dist = loss._dfl_decode(pred_dist)
+        dist = loss.dfl_decode(pred_dist)
         boxes = dist2bbox(dist, ops.expand_dims(anchors, 0), xywh=False)
         boxes = boxes * ops.reshape(stride_t, (1, -1, 1))
         _, _, target_scores, _ = loss.assigner(
@@ -177,7 +177,7 @@ def test_load_pretrained_weights_with_different_nc(tmp_path):
 
     detector = YOLODetector(target)
     detector.compile(optimizer=keras.optimizers.Adam(1e-3))
-    detector.fit(_generator(), epochs=1, steps_per_epoch=1, verbose=0)
+    detector.fit(generator(), epochs=1, steps_per_epoch=1, verbose=0)
 
 
 def test_load_pretrained_weights_reports_reinitialized_layers(tmp_path):
@@ -222,8 +222,8 @@ def test_yolo26_detector_trains_and_detects():
     assert model.end_to_end is False
     detector = YOLODetector(model)
     detector.compile(optimizer=keras.optimizers.Adam(1e-3))
-    detector.fit(_generator(), epochs=1, steps_per_epoch=1, verbose=0)
-    images, _ = _synthetic_batch(np.random.default_rng(2))
+    detector.fit(generator(), epochs=1, steps_per_epoch=1, verbose=0)
+    images, _ = synthetic_batch(np.random.default_rng(2))
     assert tuple(detector.detect(images).shape) == (BATCH, 300, 6)
 
 
@@ -257,7 +257,7 @@ def test_dfl_free_head_predicts_non_degenerate_boxes():
     assert loss.use_dfl is False
 
     rng = np.random.default_rng(0)
-    images, targets = _synthetic_batch(rng)
+    images, targets = synthetic_batch(rng)
     feats = model(ops.convert_to_tensor(images))
 
     flat, shapes = [], []
@@ -288,7 +288,7 @@ def test_loss_runs_under_mixed_precision():
         keras.mixed_precision.set_global_policy("mixed_float16")
         model = yolov8n(nc=NC, input_shape=(SIZE, SIZE, 3))
         loss = YOLODetectionLoss(nc=NC, reg_max=16, strides=model.strides)
-        images, targets = _synthetic_batch(np.random.default_rng(0))
+        images, targets = synthetic_batch(np.random.default_rng(0))
         feats = model(ops.convert_to_tensor(images))
         assert keras.backend.standardize_dtype(feats[0].dtype) == "float16"
         out = loss.compute(feats, targets)

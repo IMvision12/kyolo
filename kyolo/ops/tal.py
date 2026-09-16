@@ -100,19 +100,19 @@ class TaskAlignedAssigner:
         gt_bboxes = ops.cast(gt_bboxes, "float32")
         mask_gt_bn = ops.expand_dims(ops.cast(mask_gt, "float32"), -1)
 
-        in_gts = self._in_gt_mask(anc_points, gt_bboxes, mask_gt_bn)
+        in_gts = self.in_gt_mask(anc_points, gt_bboxes, mask_gt_bn)
 
-        align_metric, overlaps = self._box_metrics(pd_scores, pd_bboxes, gt_labels, gt_bboxes)
+        align_metric, overlaps = self.box_metrics(pd_scores, pd_bboxes, gt_labels, gt_bboxes)
         valid = in_gts * ops.cast(mask_gt_bn, "float32")
         align_metric = align_metric * valid
         overlaps = overlaps * valid
 
-        mask_topk = self._topk_mask(align_metric)
+        mask_topk = self.topk_mask(align_metric)
         mask_pos = mask_topk * valid
 
-        target_gt_idx, fg_mask, mask_pos = self._resolve_conflicts(mask_pos, overlaps, align_metric)
+        target_gt_idx, fg_mask, mask_pos = self.resolve_conflicts(mask_pos, overlaps, align_metric)
 
-        target_labels, target_bboxes, target_scores = self._gather_targets(
+        target_labels, target_bboxes, target_scores = self.gather_targets(
             gt_labels, gt_bboxes, target_gt_idx, fg_mask
         )
 
@@ -125,7 +125,7 @@ class TaskAlignedAssigner:
 
         return target_labels, target_bboxes, target_scores, fg_mask
 
-    def _expand_small_boxes(self, gt_bboxes, mask_gt_bn):
+    def expand_small_boxes(self, gt_bboxes, mask_gt_bn):
         """Grow sub-stride GT sides to one stride, about the box centre (STAL).
 
         Each side is tested and grown independently, so a thin-but-long box only
@@ -141,8 +141,8 @@ class TaskAlignedAssigner:
         half = wh / 2.0
         return ops.concatenate([cxcy - half, cxcy + half], axis=-1)
 
-    def _in_gt_mask(self, anc_points, gt_bboxes, mask_gt_bn, eps=1e-9):
-        gt_bboxes = self._expand_small_boxes(gt_bboxes, mask_gt_bn)
+    def in_gt_mask(self, anc_points, gt_bboxes, mask_gt_bn, eps=1e-9):
+        gt_bboxes = self.expand_small_boxes(gt_bboxes, mask_gt_bn)
 
         xy = ops.reshape(anc_points, (1, 1, -1, 2))
         lt = ops.expand_dims(gt_bboxes[..., :2], 2)
@@ -150,7 +150,7 @@ class TaskAlignedAssigner:
         deltas = ops.concatenate([xy - lt, rb - xy], axis=-1)
         return ops.cast(ops.min(deltas, axis=-1) > eps, "float32")
 
-    def _box_metrics(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes):
+    def box_metrics(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes):
 
         onehot = ops.one_hot(ops.cast(ops.maximum(gt_labels, 0), "int32"), self.nc)
         onehot = ops.cast(onehot, pd_scores.dtype)
@@ -164,14 +164,14 @@ class TaskAlignedAssigner:
         align_metric = ops.power(bbox_scores, self.alpha) * ops.power(overlaps, self.beta)
         return align_metric, overlaps
 
-    def _topk_mask(self, metrics):
+    def topk_mask(self, metrics):
         _, idx = ops.top_k(metrics, k=self.topk)
         a = ops.shape(metrics)[-1]
         onehot = ops.one_hot(idx, a)
         mask = ops.sum(onehot, axis=2)
         return ops.cast(mask > 0, "float32")
 
-    def _resolve_conflicts(self, mask_pos, overlaps, align_metric):
+    def resolve_conflicts(self, mask_pos, overlaps, align_metric):
         fg = ops.sum(mask_pos, axis=1)
         m = ops.shape(mask_pos)[1]
 
@@ -192,7 +192,7 @@ class TaskAlignedAssigner:
         target_gt_idx = ops.argmax(mask_pos, axis=1)
         return target_gt_idx, fg, mask_pos
 
-    def _gather_targets(self, gt_labels, gt_bboxes, target_gt_idx, fg_mask):
+    def gather_targets(self, gt_labels, gt_bboxes, target_gt_idx, fg_mask):
         idx = ops.cast(target_gt_idx, "int32")
         target_labels = ops.take_along_axis(gt_labels, idx, axis=1)
         target_labels = ops.cast(target_labels, "int32")

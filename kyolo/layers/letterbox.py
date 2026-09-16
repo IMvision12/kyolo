@@ -110,7 +110,7 @@ class Letterbox(keras.layers.Layer):
             mode="constant",
             constant_values=0.0,
         )
-        final = self._fill_border(padded, top, bottom, left, right)
+        final = self.fill_border(padded, top, bottom, left, right)
 
         ratio = ops.broadcast_to(ops.convert_to_tensor([[r, r]], dtype="float32"), (batch, 2))
         pad = ops.broadcast_to(
@@ -123,7 +123,7 @@ class Letterbox(keras.layers.Layer):
             pad = ops.squeeze(pad, axis=0)
         return final, ratio, pad
 
-    def _fill_border(self, padded, top, bottom, left, right):
+    def fill_border(self, padded, top, bottom, left, right):
 
         h, w = padded.shape[1], padded.shape[2]
         ys = ops.arange(h, dtype="int32")

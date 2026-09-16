@@ -30,7 +30,7 @@ from .config import YOLOV9_SPECS
 __all__ = ["YOLOV9_SPECS", "build_yolov9", "YOLOv9"]
 
 
-def _round(c):
+def round_channels(c):
     """Round a module output channel to a multiple of 8 (Ultralytics parse_model).
 
     Only the top-level output channel (``args[0]``) is rounded; internal widths
@@ -40,7 +40,7 @@ def _round(c):
     return make_divisible(c, 8)
 
 
-def _gather(frm, prev, outputs):
+def gather(frm, prev, outputs):
     """Resolve a spec ``from`` field into the layer input(s)."""
     if frm == -1:
         return prev
@@ -49,26 +49,26 @@ def _gather(frm, prev, outputs):
     return [prev if j == -1 else outputs[j] for j in frm]
 
 
-def _build_layer(op, x, a, deploy, data_format, ax, name):
+def build_layer(op, x, a, deploy, data_format, ax, name):
     """Build a single spec layer and return its output tensor (or tensor list)."""
     if op == "Conv":
         c2, k, s = a
-        return conv_bn(x, _round(c2), k, s, data_format=data_format, name=name)
+        return conv_bn(x, round_channels(c2), k, s, data_format=data_format, name=name)
     if op == "RepNCSPELAN4":
         c2, c3, c4, n = a
         return rep_ncspelan4(
-            x, _round(c2), c3, c4, n=n, deploy=deploy, data_format=data_format, name=name
+            x, round_channels(c2), c3, c4, n=n, deploy=deploy, data_format=data_format, name=name
         )
     if op == "ELAN1":
         c2, c3, c4 = a
-        return elan1(x, _round(c2), c3, c4, data_format=data_format, name=name)
+        return elan1(x, round_channels(c2), c3, c4, data_format=data_format, name=name)
     if op == "ADown":
-        return adown(x, _round(a[0]), data_format=data_format, name=name)
+        return adown(x, round_channels(a[0]), data_format=data_format, name=name)
     if op == "AConv":
-        return aconv(x, _round(a[0]), data_format=data_format, name=name)
+        return aconv(x, round_channels(a[0]), data_format=data_format, name=name)
     if op == "SPPELAN":
         c2, c3 = a
-        return sppelan(x, _round(c2), c3, 5, data_format=data_format, name=name)
+        return sppelan(x, round_channels(c2), c3, 5, data_format=data_format, name=name)
     if op == "Upsample":
         return layers.UpSampling2D(2, data_format=data_format, interpolation="nearest", name=name)(
             x
@@ -76,7 +76,7 @@ def _build_layer(op, x, a, deploy, data_format, ax, name):
     if op == "Concat":
         return layers.Concatenate(axis=ax, name=name)(x)
     if op == "CBLinear":
-        return cblinear(x, [_round(c) for c in a[0]], data_format=data_format, name=name)
+        return cblinear(x, [round_channels(c) for c in a[0]], data_format=data_format, name=name)
     if op == "CBFuse":
         return cbfuse(x, a[0], data_format=data_format, name=name)
     if op == "Identity":
@@ -112,8 +112,8 @@ def build_yolov9(
             detect_from = frm
             detect_idx = i
             break
-        x = _gather(frm, prev, outputs)
-        y = _build_layer(op, x, a, deploy, data_format, ax, f"model.{i}")
+        x = gather(frm, prev, outputs)
+        y = build_layer(op, x, a, deploy, data_format, ax, f"model.{i}")
         outputs.append(y)
         prev = y
 

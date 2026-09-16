@@ -30,7 +30,7 @@ _BOX_BIAS = 1.0
 _BIAS_IMGSZ = 640
 
 
-def _cls_bias(nc, stride, imgsz=_BIAS_IMGSZ):
+def cls_bias(nc, stride, imgsz=_BIAS_IMGSZ):
     """Ultralytics ``Detect.bias_init`` class-branch bias for one pyramid level.
 
     ``log(5 / nc / (imgsz / stride) ** 2)``: an initial per-class probability
@@ -66,7 +66,7 @@ def detect_head(
         act: conv activation (``True`` -> SiLU, the YOLO default, or a string).
         data_format: ``"channels_last"`` or ``"channels_first"``.
         strides: per-level strides, used only to pick the stride-dependent
-            class-branch bias (see :func:`_cls_bias`). Must be one per level.
+            class-branch bias (see :func:`cls_bias`). Must be one per level.
         name: dotted name prefix.
 
     Returns:
@@ -117,7 +117,7 @@ def detect_head(
             1,
             use_bias=True,
             data_format=data_format,
-            bias_initializer=keras.initializers.Constant(_cls_bias(nc, strides[i])),
+            bias_initializer=keras.initializers.Constant(cls_bias(nc, strides[i])),
             name=f"{name}.cv3.{i}.2",
         )(cls)
 

@@ -65,7 +65,7 @@ def cpu():
     return keras.device("cpu")
 
 
-def _head_outputs(reg_max, seed, tiny=False):
+def head_outputs(reg_max, seed, tiny=False):
     """Random head feature maps plus equal-count GT, in kyolo's conventions."""
     rng = np.random.default_rng(seed)
     no = 4 * reg_max + NC if reg_max > 1 else 4 + NC
@@ -85,7 +85,7 @@ def _head_outputs(reg_max, seed, tiny=False):
     return feats, boxes, labels, np.ones((BATCH, N_GT), "float32")
 
 
-def _fake_model(reg_max):
+def fake_model(reg_max):
     """The minimum surface ``v8DetectionLoss.__init__`` touches."""
     detect = SimpleNamespace(
         nc=NC, reg_max=reg_max, stride=torch.tensor(STRIDES, dtype=torch.float)
@@ -97,11 +97,11 @@ def _fake_model(reg_max):
     )
 
 
-def _ultralytics_loss(feats, boxes, labels, mask, reg_max):
+def ultralytics_loss(feats, boxes, labels, mask, reg_max):
     """``(total, [box, cls, dist])`` with the gains already applied."""
     from ultralytics.utils.loss import v8DetectionLoss
 
-    criterion = v8DetectionLoss(_fake_model(reg_max))
+    criterion = v8DetectionLoss(fake_model(reg_max))
     no = 4 * reg_max + NC if reg_max > 1 else 4 + NC
 
     torch_feats = [torch.from_numpy(f).permute(0, 3, 1, 2).contiguous() for f in feats]
@@ -130,7 +130,7 @@ def _ultralytics_loss(feats, boxes, labels, mask, reg_max):
     return float(total.sum()), [float(v) for v in components]
 
 
-def _kyolo_loss(feats, boxes, labels, mask, reg_max):
+def kyolo_loss(feats, boxes, labels, mask, reg_max):
     criterion = YOLODetectionLoss(
         nc=NC, reg_max=reg_max, strides=STRIDES, data_format="channels_last"
     )
@@ -156,9 +156,9 @@ def _kyolo_loss(feats, boxes, labels, mask, reg_max):
 @pytest.mark.parametrize("reg_max", [16, 1], ids=["dfl", "l1"])
 def test_loss_matches_ultralytics(reg_max, seed):
     """Every term, and the total, to within float32 rounding."""
-    inputs = _head_outputs(reg_max, seed)
-    u_total, u_parts = _ultralytics_loss(*inputs, reg_max)
-    k_total, k_parts = _kyolo_loss(*inputs, reg_max)
+    inputs = head_outputs(reg_max, seed)
+    u_total, u_parts = ultralytics_loss(*inputs, reg_max)
+    k_total, k_parts = kyolo_loss(*inputs, reg_max)
     for name, want, got in zip(("box", "cls", "dist"), u_parts, k_parts):
         assert got == pytest.approx(want, rel=RTOL), name
     assert k_total == pytest.approx(u_total, rel=RTOL)
@@ -167,9 +167,9 @@ def test_loss_matches_ultralytics(reg_max, seed):
 @pytest.mark.parametrize("reg_max", [16, 1], ids=["dfl", "l1"])
 def test_loss_matches_ultralytics_on_sub_stride_boxes(reg_max):
     """Boxes small enough to trigger the stride-aware expansion."""
-    inputs = _head_outputs(reg_max, seed=0, tiny=True)
-    u_total, _ = _ultralytics_loss(*inputs, reg_max)
-    k_total, _ = _kyolo_loss(*inputs, reg_max)
+    inputs = head_outputs(reg_max, seed=0, tiny=True)
+    u_total, _ = ultralytics_loss(*inputs, reg_max)
+    k_total, _ = kyolo_loss(*inputs, reg_max)
     assert k_total == pytest.approx(u_total, rel=RTOL)
 
 
@@ -179,12 +179,12 @@ def test_normalized_l1_is_not_the_dfl_path():
     The parity above would also pass if both implementations silently returned
     zero for the third term, which is exactly the bug this work fixed.
     """
-    inputs = _head_outputs(1, seed=0)
-    _, parts = _ultralytics_loss(*inputs, 1)
+    inputs = head_outputs(1, seed=0)
+    _, parts = ultralytics_loss(*inputs, 1)
     assert parts[2] > 0.0
 
 
-def _assigner_inputs(seed, tiny):
+def assigner_inputs(seed, tiny):
     rng = np.random.default_rng(seed)
     shapes = [(IMG // s, IMG // s) for s in STRIDES]
     with cpu():
@@ -218,7 +218,7 @@ def test_assigner_matches_ultralytics(seed, tiny, topk, topk2):
     """Identical assignment: the same anchors, targets and soft scores."""
     from ultralytics.utils.tal import TaskAlignedAssigner as UltraTAL
 
-    anchors, scores, pred, boxes, labels, mask = _assigner_inputs(seed, tiny)
+    anchors, scores, pred, boxes, labels, mask = assigner_inputs(seed, tiny)
     common = {"topk": topk, "num_classes": NC, "alpha": 0.5, "beta": 6.0}
 
     _, u_boxes, u_scores, u_fg, _ = UltraTAL(stride=list(STRIDES), topk2=topk2, **common)(

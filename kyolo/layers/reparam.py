@@ -247,7 +247,7 @@ def sppelan(x, c2, c3, k=5, data_format="channels_last", name="sppelan"):
     return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv5")
 
 
-def _spatial_hw(x, data_format):
+def spatial_hw(x, data_format):
     """Static (H, W) of a feature tensor for the given data format."""
     shape = x.shape
     return (shape[1], shape[2]) if data_format == "channels_last" else (shape[2], shape[3])
@@ -282,11 +282,11 @@ def cbfuse(xs, idx, data_format="channels_last", name="cbfuse"):
     ``torch.sum(torch.stack(res + xs[-1:]), dim=0)``).
     """
     target = xs[-1]
-    th, tw = _spatial_hw(target, data_format)
+    th, tw = spatial_hw(target, data_format)
     parts = []
     for i, src in enumerate(xs[:-1]):
         sel = src[idx[i]]
-        sh, sw = _spatial_hw(sel, data_format)
+        sh, sw = spatial_hw(sel, data_format)
         if (sh, sw) != (th, tw):
             sel = ops.image.resize(
                 sel, size=(th, tw), interpolation="nearest", data_format=data_format

@@ -92,7 +92,7 @@ _SUFFIX_MAP = {
 _NON_TRANSFERABLE_SUFFIXES = ("dfl.conv.weight",)
 
 
-def _drop_non_transferable(torch_state: "Dict[str, np.ndarray]") -> "OrderedDict[str, np.ndarray]":
+def drop_non_transferable(torch_state: "Dict[str, np.ndarray]") -> "OrderedDict[str, np.ndarray]":
     """Return ``torch_state`` without buffers kyolo does not hold (e.g. DFL)."""
     return OrderedDict(
         (k, v)
@@ -101,7 +101,7 @@ def _drop_non_transferable(torch_state: "Dict[str, np.ndarray]") -> "OrderedDict
     )
 
 
-def _unclaimed_torch_keys(torch_state, claimed) -> List[str]:
+def unclaimed_torch_keys(torch_state, claimed) -> List[str]:
     """Torch tensors that no Keras variable took.
 
     Without this a *partially* overlapping checkpoint is indistinguishable from a
@@ -116,7 +116,7 @@ def _unclaimed_torch_keys(torch_state, claimed) -> List[str]:
     ]
 
 
-def _require_torch():
+def require_torch():
     """Import torch lazily, raising a friendly error if it is unavailable."""
     try:
         import torch
@@ -129,14 +129,14 @@ def _require_torch():
     return torch
 
 
-def _looks_like_state_dict(obj, torch) -> bool:
+def looks_like_state_dict(obj, torch) -> bool:
     """True if ``obj`` is a mapping whose values are (mostly) tensors."""
     if not isinstance(obj, dict) or not obj:
         return False
     return any(torch.is_tensor(v) for v in obj.values())
 
 
-def _to_state_dict(obj, torch) -> Dict[str, "object"]:
+def to_state_dict(obj, torch) -> Dict[str, "object"]:
     """Reduce an arbitrary loaded checkpoint object to a ``name -> tensor`` map.
 
     Handles, in order of preference: a raw ``state_dict``; an ``nn.Module``; an
@@ -153,10 +153,10 @@ def _to_state_dict(obj, torch) -> Dict[str, "object"]:
     if isinstance(obj, dict):
         for key in ("model", "ema"):
             if obj.get(key) is not None:
-                return _to_state_dict(obj[key], torch)
+                return to_state_dict(obj[key], torch)
         if obj.get("state_dict") is not None:
-            return _to_state_dict(obj["state_dict"], torch)
-        if _looks_like_state_dict(obj, torch):
+            return to_state_dict(obj["state_dict"], torch)
+        if looks_like_state_dict(obj, torch):
             return obj
 
     raise ValueError(
@@ -179,14 +179,14 @@ def load_torch_state_dict(path: str) -> "OrderedDict[str, np.ndarray]":
     Returns:
         An ``OrderedDict`` of NumPy arrays in the checkpoint's parameter order.
     """
-    torch = _require_torch()
+    torch = require_torch()
 
     try:
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
     except TypeError:
         ckpt = torch.load(path, map_location="cpu")
 
-    state = _to_state_dict(ckpt, torch)
+    state = to_state_dict(ckpt, torch)
 
     out: "OrderedDict[str, np.ndarray]" = OrderedDict()
     for name, value in state.items():
@@ -200,14 +200,14 @@ def load_torch_state_dict(path: str) -> "OrderedDict[str, np.ndarray]":
     return out
 
 
-def _leaf(path: str) -> str:
+def leaf_name(path: str) -> str:
     """Return the trailing variable name of a Keras ``variable.path``."""
     return path.rsplit("/", 1)[-1]
 
 
-def _var_kind(var) -> str:
+def var_kind(var) -> str:
     """Classify a Keras variable so we know how (if at all) to transpose it."""
-    name = _leaf(var.path)
+    name = leaf_name(var.path)
     ndim = len(var.shape)
     if name.endswith("kernel"):
         if ndim == 4:
@@ -228,7 +228,7 @@ def _var_kind(var) -> str:
     return "other"
 
 
-def _transpose_for_kind(arr: np.ndarray, kind: str) -> np.ndarray:
+def transpose_for_kind(arr: np.ndarray, kind: str) -> np.ndarray:
     """Apply the PyTorch->Keras axis permutation implied by ``kind``."""
     if kind == "conv_kernel":
         return np.transpose(arr, (2, 3, 1, 0))
@@ -237,7 +237,7 @@ def _transpose_for_kind(arr: np.ndarray, kind: str) -> np.ndarray:
     return arr
 
 
-def _assign(var, arr: np.ndarray) -> None:
+def assign(var, arr: np.ndarray) -> None:
     """Assign ``arr`` into a Keras variable, matching its dtype."""
     var.assign(arr.astype(var.dtype))
 
@@ -281,8 +281,8 @@ def transfer_by_order(
         ValueError: If the number of Keras variables and Torch tensors differ,
             or (when ``strict_shapes``) on a shape mismatch.
     """
-    keras_vars = [(v, _var_kind(v)) for v in keras_model.weights]
-    torch_items: List[Tuple[str, np.ndarray]] = list(_drop_non_transferable(torch_state).items())
+    keras_vars = [(v, var_kind(v)) for v in keras_model.weights]
+    torch_items: List[Tuple[str, np.ndarray]] = list(drop_non_transferable(torch_state).items())
 
     if len(keras_vars) != len(torch_items):
         raise ValueError(
@@ -297,7 +297,7 @@ def transfer_by_order(
     misses: List[Tuple[str, str, str]] = []
     claimed = set()
     for idx, ((var, kind), (tk, arr)) in enumerate(zip(keras_vars, torch_items)):
-        converted = _transpose_for_kind(arr, kind)
+        converted = transpose_for_kind(arr, kind)
         if tuple(converted.shape) != tuple(var.shape):
             reason = (
                 f"shape mismatch: Keras expects {tuple(var.shape)} (kind={kind}) "
@@ -309,12 +309,12 @@ def transfer_by_order(
                 print(f"  skip: [{idx}] {var.path} <- {tk} ({reason})")
             misses.append((var.path, tk, reason))
             continue
-        _assign(var, converted)
+        assign(var, converted)
         claimed.add(tk)
         transferred += 1
 
     total = len(keras_vars)
-    unclaimed = _unclaimed_torch_keys(torch_state, claimed)
+    unclaimed = unclaimed_torch_keys(torch_state, claimed)
     if verbose:
         print(
             f"[order] transferred {transferred}/{total} variables"
@@ -383,7 +383,7 @@ def transfer_torch_to_keras(
         if "/" in path:
             layer_path, leaf = path.rsplit("/", 1)
         else:
-            layer_path, leaf = path, _leaf(path)
+            layer_path, leaf = path, leaf_name(path)
 
         layer_path = layer_path.replace("-", ".")
         suffix = _SUFFIX_MAP.get(leaf, leaf)
@@ -402,7 +402,7 @@ def transfer_torch_to_keras(
             continue
 
         arr = torch_state[torch_key]
-        converted = _transpose_for_kind(arr, _var_kind(var))
+        converted = transpose_for_kind(arr, var_kind(var))
         if tuple(converted.shape) != tuple(var.shape):
             reason = f"shape {tuple(arr.shape)}->{tuple(converted.shape)} != {tuple(var.shape)}"
             if strict:
@@ -410,11 +410,11 @@ def transfer_torch_to_keras(
             misses.append((path, torch_key, reason))
             continue
 
-        _assign(var, converted)
+        assign(var, converted)
         claimed.add(torch_key)
         transferred += 1
 
-    unclaimed = _unclaimed_torch_keys(torch_state, claimed)
+    unclaimed = unclaimed_torch_keys(torch_state, claimed)
     if verbose:
         print(f"[name] transferred {transferred}/{total} variables ({len(misses)} misses)")
         for path, torch_key, reason in misses[:10]:
@@ -437,7 +437,7 @@ def transfer_torch_to_keras(
     }
 
 
-def _sample(items, render, limit=10):
+def sample(items, render, limit=10):
     """Render up to ``limit`` items as indented lines, noting how many remain."""
     lines = [f"    {render(item)}" for item in items[:limit]]
     if len(items) > limit:
@@ -445,7 +445,7 @@ def _sample(items, render, limit=10):
     return lines
 
 
-def _incomplete_transfer_error(report, method) -> Optional[str]:
+def incomplete_transfer_error(report, method) -> Optional[str]:
     """Describe an incomplete transfer, or return ``None`` if it was complete.
 
     Both directions matter. Unfilled Keras variables keep their random
@@ -475,11 +475,11 @@ def _incomplete_transfer_error(report, method) -> Optional[str]:
     if misses:
         lines.append("")
         lines.append(f"{len(misses)} Keras variable(s) kept their random initialisation:")
-        lines += _sample(misses, lambda m: f"{m[0]} <- {m[1]} ({m[2]})")
+        lines += sample(misses, lambda m: f"{m[0]} <- {m[1]} ({m[2]})")
     if unclaimed:
         lines.append("")
         lines.append(f"{len(unclaimed)} Torch tensor(s) in the checkpoint were never used:")
-        lines += _sample(unclaimed, str)
+        lines += sample(unclaimed, str)
 
     lines.append("")
     lines.append(
@@ -553,7 +553,7 @@ def convert_weights(
     else:
         raise ValueError(f"Unknown method {method!r}; expected 'order' or 'name'.")
 
-    problem = _incomplete_transfer_error(report, method)
+    problem = incomplete_transfer_error(report, method)
     if problem is not None:
         if not allow_partial:
             raise ValueError(f"{problem}\n\nSource checkpoint: {torch_weights_path!r}")

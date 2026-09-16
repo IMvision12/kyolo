@@ -38,11 +38,11 @@ MAX_BOXES = 5
 STRIDES = (8, 16, 32)
 
 
-def _feats(rng, no, size=SIZE, batch=BATCH):
+def make_feats(rng, no, size=SIZE, batch=BATCH):
     return [rng.normal(size=(batch, size // s, size // s, no)).astype("float32") for s in STRIDES]
 
 
-def _targets(rng, nc=NC, batch=BATCH, size=SIZE, side=(0.1, 0.4)):
+def make_targets(rng, nc=NC, batch=BATCH, size=SIZE, side=(0.1, 0.4)):
     boxes = np.zeros((batch, MAX_BOXES, 4), np.float32)
     labels = np.zeros((batch, MAX_BOXES), np.int32)
     mask = np.zeros((batch, MAX_BOXES), np.float32)
@@ -56,7 +56,7 @@ def _targets(rng, nc=NC, batch=BATCH, size=SIZE, side=(0.1, 0.4)):
     return {"boxes": boxes, "labels": labels, "mask": mask}
 
 
-def _one_positive(pred_left, target_left=0.0, imgsz=(64.0, 64.0), stride=8.0, anchor=4.0):
+def one_positive(pred_left, target_left=0.0, imgsz=(64.0, 64.0), stride=8.0, anchor=4.0):
     """A single-anchor, single-positive ``BboxLoss`` call in stride units.
 
     The anchor sits at ``anchor`` and the target box spans ``[target_left, 0,
@@ -94,7 +94,7 @@ def test_normalized_l1_is_a_fraction_of_image_size():
     One stride unit of error on the left edge at stride 8 is 8 px; over a 64 px
     image that is 1/8 of the width, averaged over the four sides -> 0.03125.
     """
-    box_loss, dist_loss = BboxLoss(1)(**_one_positive(pred_left=5.0))
+    box_loss, dist_loss = BboxLoss(1)(**one_positive(pred_left=5.0))
     assert float(ops.convert_to_numpy(dist_loss)) == pytest.approx(0.125 / 4, rel=1e-6)
 
     assert float(ops.convert_to_numpy(box_loss)) < 1e-6
@@ -106,9 +106,9 @@ def test_normalized_l1_is_resolution_invariant():
     This is the whole point of dividing by the image size rather than leaving
     the term in stride units, where a P5 error would count 4x a P3 one.
     """
-    small = BboxLoss(1)(**_one_positive(pred_left=5.0, imgsz=(64.0, 64.0), stride=8.0))[1]
+    small = BboxLoss(1)(**one_positive(pred_left=5.0, imgsz=(64.0, 64.0), stride=8.0))[1]
 
-    large = BboxLoss(1)(**_one_positive(pred_left=5.0, imgsz=(128.0, 128.0), stride=16.0))[1]
+    large = BboxLoss(1)(**one_positive(pred_left=5.0, imgsz=(128.0, 128.0), stride=16.0))[1]
     assert float(ops.convert_to_numpy(small)) == pytest.approx(
         float(ops.convert_to_numpy(large)), rel=1e-6
     )
@@ -121,8 +121,8 @@ def test_normalized_l1_keeps_the_sign_of_the_error():
     distance can legitimately be negative for a background anchor, and clipping
     would also collapse over-shoots.
     """
-    over = BboxLoss(1)(**_one_positive(pred_left=5.0))[1]
-    under = BboxLoss(1)(**_one_positive(pred_left=3.0))[1]
+    over = BboxLoss(1)(**one_positive(pred_left=5.0))[1]
+    under = BboxLoss(1)(**one_positive(pred_left=3.0))[1]
     assert float(ops.convert_to_numpy(over)) == pytest.approx(
         float(ops.convert_to_numpy(under)), rel=1e-6
     )
@@ -135,7 +135,7 @@ def test_bbox_loss_ignores_background_rows():
     dense tensor by a zero mask instead, which is only equivalent if no
     background row is non-finite (``0 * nan == nan``).
     """
-    kwargs = _one_positive(pred_left=5.0)
+    kwargs = one_positive(pred_left=5.0)
     reference = float(ops.convert_to_numpy(BboxLoss(1)(**kwargs)[1]))
 
     def pad(name, extra):
@@ -172,7 +172,7 @@ def test_distance_term_is_reported_under_its_own_name(reg_max, name):
     loss = YOLODetectionLoss(nc=NC, reg_max=reg_max, strides=STRIDES)
     assert loss.dist_name == name
     rng = np.random.default_rng(0)
-    out = loss(_feats(rng, loss.no), _targets(rng))
+    out = loss(make_feats(rng, loss.no), make_targets(rng))
     assert name in out and "dist" in out
     assert float(ops.convert_to_numpy(out[name])) == float(ops.convert_to_numpy(out["dist"]))
 
@@ -183,7 +183,7 @@ def test_dfl_free_loss_has_a_live_distance_term():
     """At reg_max=1 the third term used to be a hard-coded 0.0."""
     rng = np.random.default_rng(0)
     loss = YOLODetectionLoss(nc=NC, reg_max=1, strides=STRIDES)
-    out = loss(_feats(rng, loss.no), _targets(rng))
+    out = loss(make_feats(rng, loss.no), make_targets(rng))
     dist = float(ops.convert_to_numpy(out["dist"]))
     assert dist > 0.0
 
@@ -198,7 +198,7 @@ def test_dfl_free_loss_has_a_live_distance_term():
 
 def test_class_weights_scale_the_classification_term():
     rng = np.random.default_rng(0)
-    feats, targets = _feats(rng, 4 * 16 + NC), _targets(rng)
+    feats, targets = make_feats(rng, 4 * 16 + NC), make_targets(rng)
     plain = YOLODetectionLoss(nc=NC, reg_max=16, strides=STRIDES)(feats, targets)
     weighted = YOLODetectionLoss(nc=NC, reg_max=16, strides=STRIDES, class_weights=[2.0] * NC)(
         feats, targets
@@ -238,7 +238,7 @@ def test_detector_builds_the_loss_from_the_model_config():
     assert YOLODetector(model).loss_fn.assigner.topk == 4
 
 
-def _assigner_case(seed=0, side=3.0, n_gt=4, batch=2):
+def assigner_case(seed=0, side=3.0, n_gt=4, batch=2):
     """Anchors in pixels plus predictions that overlap the GT boxes."""
     rng = np.random.default_rng(seed)
     from kyolo.ops.anchors import make_anchors
@@ -264,7 +264,7 @@ def _assigner_case(seed=0, side=3.0, n_gt=4, batch=2):
     return anchors, scores.astype("float32"), pred, boxes, labels, mask
 
 
-def _assign(tal, case):
+def assign(tal, case):
     anchors, scores, pred, boxes, labels, mask = case
     return tal(
         ops.convert_to_tensor(scores),
@@ -280,18 +280,18 @@ def test_small_target_expansion_finds_positives_sub_stride_boxes_would_miss():
     """A 3 px box is smaller than the 8 px anchor spacing, so it can fall between
     anchor centres and never be supervised. Growing it to one stride for
     candidate selection is Ultralytics' STAL."""
-    case = _assigner_case(side=3.0)
+    case = assigner_case(side=3.0)
     args = {"topk": 10, "num_classes": NC, "alpha": 0.5, "beta": 6.0}
 
-    *_, without = _assign(TaskAlignedAssigner(strides=(1, 1, 1), **args), case)
-    *_, with_stal = _assign(TaskAlignedAssigner(strides=STRIDES, **args), case)
+    *_, without = assign(TaskAlignedAssigner(strides=(1, 1, 1), **args), case)
+    *_, with_stal = assign(TaskAlignedAssigner(strides=STRIDES, **args), case)
     n_without = int(ops.convert_to_numpy(ops.sum(ops.cast(without > 0, "int32"))))
     n_with = int(ops.convert_to_numpy(ops.sum(ops.cast(with_stal > 0, "int32"))))
     assert n_with > n_without, (n_with, n_without)
 
-    big = _assigner_case(side=40.0)
-    *_, big_without = _assign(TaskAlignedAssigner(strides=(1, 1, 1), **args), big)
-    *_, big_with = _assign(TaskAlignedAssigner(strides=STRIDES, **args), big)
+    big = assigner_case(side=40.0)
+    *_, big_without = assign(TaskAlignedAssigner(strides=(1, 1, 1), **args), big)
+    *_, big_with = assign(TaskAlignedAssigner(strides=STRIDES, **args), big)
     np.testing.assert_array_equal(
         ops.convert_to_numpy(big_without) > 0, ops.convert_to_numpy(big_with) > 0
     )
@@ -300,11 +300,11 @@ def test_small_target_expansion_finds_positives_sub_stride_boxes_would_miss():
 def test_expansion_does_not_resurrect_padded_ground_truth():
     """Padded rows are all-zero, so every side is "small"; without the mask gate
     they would become real stride-sized boxes at the origin."""
-    anchors, scores, pred, boxes, labels, mask = _assigner_case(side=20.0, n_gt=3)
+    anchors, scores, pred, boxes, labels, mask = assigner_case(side=20.0, n_gt=3)
     mask[:, 1:] = 0.0
     boxes[:, 1:] = 0.0
     tal = TaskAlignedAssigner(topk=10, num_classes=NC, alpha=0.5, beta=6.0, strides=STRIDES)
-    _, target_bboxes, _, fg = _assign(tal, (anchors, scores, pred, boxes, labels, mask))
+    _, target_bboxes, _, fg = assign(tal, (anchors, scores, pred, boxes, labels, mask))
     assigned = ops.convert_to_numpy(target_bboxes)[ops.convert_to_numpy(fg) > 0]
 
     assert len(assigned) > 0
@@ -312,10 +312,10 @@ def test_expansion_does_not_resurrect_padded_ground_truth():
 
 
 def test_topk2_makes_the_assignment_one_to_one():
-    case = _assigner_case(side=20.0, n_gt=4)
+    case = assigner_case(side=20.0, n_gt=4)
     args = {"topk": 7, "num_classes": NC, "alpha": 0.5, "beta": 6.0, "strides": STRIDES}
-    *_, many = _assign(TaskAlignedAssigner(**args), case)
-    *_, one = _assign(TaskAlignedAssigner(topk2=1, **args), case)
+    *_, many = assign(TaskAlignedAssigner(**args), case)
+    *_, one = assign(TaskAlignedAssigner(topk2=1, **args), case)
     n_many = int(ops.convert_to_numpy(ops.sum(ops.cast(many > 0, "int32"))))
     n_one = int(ops.convert_to_numpy(ops.sum(ops.cast(one > 0, "int32"))))
 
@@ -325,15 +325,15 @@ def test_topk2_makes_the_assignment_one_to_one():
     assert TaskAlignedAssigner(topk=7, strides=STRIDES).topk2 == 7
 
 
-def _e2e_inputs(reg_max=1, seed=0):
+def e2e_inputs(reg_max=1, seed=0):
     rng = np.random.default_rng(seed)
     no = 4 * reg_max + NC if reg_max > 1 else 4 + NC
-    preds = {"one2many": _feats(rng, no), "one2one": _feats(rng, no)}
-    return preds, _targets(rng)
+    preds = {"one2many": make_feats(rng, no), "one2one": make_feats(rng, no)}
+    return preds, make_targets(rng)
 
 
 def test_e2e_loss_weights_the_two_branches_progressively():
-    preds, targets = _e2e_inputs()
+    preds, targets = e2e_inputs()
     loss = E2EDetectionLoss(nc=NC, reg_max=1, strides=STRIDES, epochs=10)
     assert loss.o2m_gain == pytest.approx(0.8)
     assert loss.o2o_gain == pytest.approx(0.2)
@@ -369,7 +369,7 @@ def test_e2e_loss_branches_use_one_to_many_and_one_to_one_assignment():
 
 
 def test_e2e_loss_can_sum_the_branches_without_a_schedule():
-    preds, targets = _e2e_inputs()
+    preds, targets = e2e_inputs()
     loss = E2EDetectionLoss(nc=NC, reg_max=1, strides=STRIDES, progressive=False)
     assert (loss.o2m_gain, loss.o2o_gain) == (1.0, 1.0)
     loss.update()
@@ -384,7 +384,7 @@ def test_e2e_loss_can_sum_the_branches_without_a_schedule():
 def test_e2e_loss_requires_both_branches():
     loss = E2EDetectionLoss(nc=NC, reg_max=1, strides=STRIDES)
     rng = np.random.default_rng(0)
-    feats, targets = _feats(rng, 4 + NC), _targets(rng)
+    feats, targets = make_feats(rng, 4 + NC), make_targets(rng)
     with pytest.raises(ValueError, match="one2many"):
         loss(feats, targets)
     with pytest.raises(ValueError, match="one2many"):

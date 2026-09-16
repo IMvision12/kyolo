@@ -39,11 +39,11 @@ __all__ = [
 ]
 
 
-def _to_nhwc(x, data_format):
+def to_nhwc(x, data_format):
     return x if data_format == "channels_last" else ops.transpose(x, (0, 2, 3, 1))
 
 
-def _from_nhwc(x, data_format):
+def from_nhwc(x, data_format):
     return x if data_format == "channels_last" else ops.transpose(x, (0, 3, 1, 2))
 
 
@@ -61,14 +61,14 @@ def mhsa(x, num_heads=4, attn_ratio=0.5, data_format="channels_last", name="attn
     nh_kd = key_dim * num_heads
     h = dim + nh_kd * 2
 
-    xh = _to_nhwc(x, data_format)
+    xh = to_nhwc(x, data_format)
 
     H = xh.shape[1]
     W = xh.shape[2]
     N = H * W
 
     qkv = conv_bn(x, h, 1, 1, act=False, data_format=data_format, name=f"{name}.qkv")
-    qkv = _to_nhwc(qkv, data_format)
+    qkv = to_nhwc(qkv, data_format)
 
     qkv = ops.reshape(qkv, (-1, N, num_heads, key_dim * 2 + head_dim))
     q = qkv[..., :key_dim]
@@ -84,10 +84,10 @@ def mhsa(x, num_heads=4, attn_ratio=0.5, data_format="channels_last", name="attn
     out = ops.matmul(attn, v)
     out = ops.transpose(out, (0, 2, 1, 3))
     out = ops.reshape(out, (-1, H, W, dim))
-    out = _from_nhwc(out, data_format)
+    out = from_nhwc(out, data_format)
 
     v_img = ops.reshape(ops.transpose(v, (0, 2, 1, 3)), (-1, H, W, dim))
-    v_img = _from_nhwc(v_img, data_format)
+    v_img = from_nhwc(v_img, data_format)
     pe = conv_bn(
         v_img, dim, 3, 1, groups=dim, act=False, data_format=data_format, name=f"{name}.pe"
     )
@@ -95,7 +95,7 @@ def mhsa(x, num_heads=4, attn_ratio=0.5, data_format="channels_last", name="attn
     return conv_bn(out, dim, 1, 1, act=False, data_format=data_format, name=f"{name}.proj")
 
 
-def _ffn(x, c, data_format, name):
+def ffn(x, c, data_format, name):
     y = conv_bn(x, c * 2, 1, 1, data_format=data_format, name=f"{name}.0")
     return conv_bn(y, c, 1, 1, act=False, data_format=data_format, name=f"{name}.1")
 
@@ -109,7 +109,7 @@ def psa_block(
         x, num_heads=num_heads, attn_ratio=attn_ratio, data_format=data_format, name=f"{name}.attn"
     )
     x = layers.Add(name=f"{name}.add_attn")([x, a]) if shortcut else a
-    f = _ffn(x, c, data_format, name=f"{name}.ffn")
+    f = ffn(x, c, data_format, name=f"{name}.ffn")
     x = layers.Add(name=f"{name}.add_ffn")([x, f]) if shortcut else f
     return x
 
@@ -138,7 +138,7 @@ def psa(x, c2, e=0.5, data_format="channels_last", name="psa"):
     a, b = ops.split(y, 2, axis=ax)
     att = mhsa(b, num_heads=num_heads, attn_ratio=0.5, data_format=data_format, name=f"{name}.attn")
     b = layers.Add(name=f"{name}.add_attn")([b, att])
-    f = _ffn(b, c, data_format, name=f"{name}.ffn")
+    f = ffn(b, c, data_format, name=f"{name}.ffn")
     b = layers.Add(name=f"{name}.add_ffn")([b, f])
     y = layers.Concatenate(axis=ax, name=f"{name}.concat")([a, b])
     return conv_bn(y, c2, 1, 1, data_format=data_format, name=f"{name}.cv2")
@@ -228,7 +228,7 @@ def area_attention(x, num_heads=4, area=1, data_format="channels_last", name="aa
     all_head = head_dim * num_heads
     scale = head_dim**-0.5
 
-    xh = _to_nhwc(x, data_format)
+    xh = to_nhwc(x, data_format)
     H = xh.shape[1]
     W = xh.shape[2]
     N = H * W
@@ -237,7 +237,7 @@ def area_attention(x, num_heads=4, area=1, data_format="channels_last", name="aa
     seq = N // area
 
     qkv = conv_bn(x, all_head * 3, 1, 1, act=False, data_format=data_format, name=f"{name}.qkv")
-    qkv = _to_nhwc(qkv, data_format)
+    qkv = to_nhwc(qkv, data_format)
 
     qkv = ops.reshape(qkv, (-1, seq, num_heads, head_dim * 3))
     q = qkv[..., :head_dim]
@@ -252,11 +252,11 @@ def area_attention(x, num_heads=4, area=1, data_format="channels_last", name="aa
     out = ops.matmul(attn, v)
     out = ops.transpose(out, (0, 2, 1, 3))
     out = ops.reshape(out, (-1, H, W, all_head))
-    out = _from_nhwc(out, data_format)
+    out = from_nhwc(out, data_format)
 
     v_img = ops.transpose(v, (0, 2, 1, 3))
     v_img = ops.reshape(v_img, (-1, H, W, all_head))
-    v_img = _from_nhwc(v_img, data_format)
+    v_img = from_nhwc(v_img, data_format)
 
     pe = conv_bn(
         v_img,

@@ -36,7 +36,7 @@ _COLORS = [
 ]
 
 
-def _import_matplotlib():
+def import_matplotlib():
     """Import and return the ``pyplot`` and ``patches`` modules, lazily.
 
     Raises:
@@ -53,7 +53,7 @@ def _import_matplotlib():
     return plt, patches
 
 
-def _to_numpy(x):
+def to_numpy(x):
     """Convert a numpy array or a Keras/backend tensor to a numpy array."""
     if isinstance(x, np.ndarray):
         return x
@@ -66,13 +66,13 @@ def _to_numpy(x):
         return np.asarray(x)
 
 
-def _prepare_image(image):
+def prepare_image(image):
     """Normalize an image to an ``(H, W, 3)`` float array in ``[0, 1]``.
 
     Accepts ``(H, W, 3)``, ``(3, H, W)`` or ``(H, W)`` layouts, with values in
     either ``[0, 1]`` or ``[0, 255]`` (auto-detected).
     """
-    img = _to_numpy(image)
+    img = to_numpy(image)
     img = np.asarray(img)
 
     if img.ndim == 3 and img.shape[0] == 3 and img.shape[-1] != 3:
@@ -118,14 +118,14 @@ def visualize_detections(
     Returns:
         The created ``matplotlib.figure.Figure``.
     """
-    plt, patches = _import_matplotlib()
+    plt, patches = import_matplotlib()
 
     if class_names is None:
         class_names = COCO_CLASS_NAMES
 
-    img = _prepare_image(image)
+    img = prepare_image(image)
 
-    dets = _to_numpy(detections)
+    dets = to_numpy(detections)
     dets = np.asarray(dets, dtype="float32")
     if dets.ndim == 1:
         dets = dets.reshape(1, -1) if dets.size else dets.reshape(0, 6)

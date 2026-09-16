@@ -109,7 +109,7 @@ class YOLOPreprocessor(keras.layers.Layer):
                 scaleup=True,
             )
 
-    def _fix_channels(self, x):
+    def fix_channels(self, x):
         c = x.shape[-1]
         if c == 1:
             x = ops.repeat(x, 3, axis=-1)
@@ -119,7 +119,7 @@ class YOLOPreprocessor(keras.layers.Layer):
             raise ValueError(f"unsupported channel count: {c}")
         return x
 
-    def _to_unit_range(self, x, integer_input):
+    def to_unit_range(self, x, integer_input):
         """Scale a float ``(B, H, W, C)`` batch to ``[0, 1]`` per ``input_range``."""
         if self.input_range == (0, 1):
             return x
@@ -137,10 +137,10 @@ class YOLOPreprocessor(keras.layers.Layer):
         single = len(x.shape) == 3
         if single:
             x = ops.expand_dims(x, 0)
-        x = self._fix_channels(x)
+        x = self.fix_channels(x)
 
         if self.normalize:
-            x = self._to_unit_range(x, integer_input)
+            x = self.to_unit_range(x, integer_input)
 
         if self.do_letterbox:
             x, ratio, pad = self.lb(x)

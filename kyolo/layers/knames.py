@@ -49,12 +49,12 @@ class _SanitizedLayers:
         if not callable(obj):
             return obj
 
-        def _construct(*args, **kwargs):
+        def construct(*args, **kwargs):
             if "name" in kwargs:
                 kwargs["name"] = kname(kwargs["name"])
             return obj(*args, **kwargs)
 
-        return _construct
+        return construct
 
 
 layers = _SanitizedLayers()

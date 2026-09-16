@@ -39,7 +39,7 @@ from .bbox_loss import BboxLoss
 __all__ = ["YOLODetectionLoss"]
 
 
-def _bce_with_logits(logits, targets):
+def bce_with_logits(logits, targets):
     """Numerically-stable elementwise binary cross-entropy from logits."""
     return ops.maximum(logits, 0.0) - logits * targets + ops.log1p(ops.exp(-ops.abs(logits)))
 
@@ -114,7 +114,7 @@ class YOLODetectionLoss:
     def __call__(self, feats, targets):
         return self.compute(feats, targets)
 
-    def _dfl_decode(self, pred_dist):
+    def dfl_decode(self, pred_dist):
         """(B, A, 4*reg_max) logits -> (B, A, 4) expected distances."""
         b = ops.shape(pred_dist)[0]
         a = ops.shape(pred_dist)[1]
@@ -124,7 +124,7 @@ class YOLODetectionLoss:
         proj = ops.cast(ops.reshape(self.proj, (1, 1, 1, self.reg_max)), x.dtype)
         return ops.sum(x * proj, axis=-1)
 
-    def _flatten(self, feats):
+    def flatten(self, feats):
         """Head feature maps -> ``((B, A, no)``, per-level ``(H, W)`` shapes)."""
         shapes = []
         flat = []
@@ -139,7 +139,7 @@ class YOLODetectionLoss:
 
         return ops.cast(ops.concatenate(flat, axis=1), "float32"), shapes
 
-    def _image_size(self, shapes):
+    def image_size(self, shapes):
         """Input ``(height, width)`` in pixels, from the finest level's grid."""
         h, w = shapes[0]
         stride = float(self.strides[0])
@@ -155,17 +155,17 @@ class YOLODetectionLoss:
         gt_labels = ops.cast(targets["labels"], "int32")
         mask = ops.cast(targets["mask"], "float32")
 
-        x, shapes = self._flatten(feats)
+        x, shapes = self.flatten(feats)
         pred_dist = x[..., : self.no - self.nc]
         pred_scores = x[..., self.no - self.nc :]
-        imgsz = self._image_size(shapes)
+        imgsz = self.image_size(shapes)
 
         anchors, stride_t = make_anchors(shapes, self.strides)
         anchors = ops.cast(anchors, "float32")
         stride_t = ops.cast(stride_t, "float32")
 
         if self.use_dfl:
-            dist = self._dfl_decode(pred_dist)
+            dist = self.dfl_decode(pred_dist)
         else:
             dist = pred_dist
         anchors_b = ops.expand_dims(anchors, 0)
@@ -188,7 +188,7 @@ class YOLODetectionLoss:
 
         target_scores_sum = ops.maximum(ops.sum(target_scores), 1.0)
 
-        cls = _bce_with_logits(pred_scores, target_scores)
+        cls = bce_with_logits(pred_scores, target_scores)
         if self.class_weights is not None:
             cls = cls * self.class_weights
         cls_loss = ops.sum(cls) / target_scores_sum
