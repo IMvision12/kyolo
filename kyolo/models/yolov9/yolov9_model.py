@@ -117,7 +117,6 @@ def build_yolov9(
         outputs.append(y)
         prev = y
 
-    # The backbone is everything before the first neck upsample (t/s/m/c: 0-9, e: 0-29).
     backbone_end = next(i for i, (_, op, _) in enumerate(spec) if op == "Upsample") - 1
     feats = [outputs[j] for j in detect_from]
     return finalize_detector(
@@ -127,7 +126,7 @@ def build_yolov9(
         reg_max=reg_max,
         data_format=data_format,
         name=f"yolov9{variant}",
-        head_name=f"model.{detect_idx}",  # matches the Ultralytics Detect index
+        head_name=f"model.{detect_idx}",
         backbone_end=backbone_end,
     )
 

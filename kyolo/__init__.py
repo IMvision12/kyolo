@@ -24,8 +24,8 @@ Every model variant is a factory function (``yolov5n``, ``yolo11s``, ``yolov9c``
 from __future__ import annotations
 
 from . import models
-from .losses import YOLODetectionLoss
-from .models import *  # noqa: F401,F403  (per-variant factories + family classes)
+from .losses import BboxLoss, DistributionFocalLoss, E2EDetectionLoss, YOLODetectionLoss
+from .models import *
 from .models import MODEL_NAMES, list_models, load_pretrained_weights
 from .postprocessing import (
     NonMaxSuppression,
@@ -33,7 +33,7 @@ from .postprocessing import (
     detections_to_list,
 )
 from .preprocessing import YOLOPreprocessor
-from .training import YOLODetector, freeze_backbone
+from .training import ProgressiveLossSchedule, YOLODetector, freeze_backbone
 from .version import __version__, version
 
 __all__ = [
@@ -42,15 +42,16 @@ __all__ = [
     "models",
     "list_models",
     "MODEL_NAMES",
-    # per-variant factories + family classes (re-exported from kyolo.models)
     *models.__all__,
-    # pre / post
     "YOLOPreprocessor",
     "YOLOPostprocessor",
     "NonMaxSuppression",
     "detections_to_list",
-    # training / loss
     "YOLODetector",
     "freeze_backbone",
+    "ProgressiveLossSchedule",
     "YOLODetectionLoss",
+    "E2EDetectionLoss",
+    "BboxLoss",
+    "DistributionFocalLoss",
 ]

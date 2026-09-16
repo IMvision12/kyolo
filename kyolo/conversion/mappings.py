@@ -29,25 +29,16 @@ from typing import Dict
 __all__ = ["DEFAULT_MAPPING", "NAME_MAPPINGS", "get_mapping"]
 
 
-# Applied when no family-specific mapping is requested. Identity by default:
-# the dotted kyolo naming already mirrors the reference module hierarchy.
 DEFAULT_MAPPING: Dict[str, str] = {}
 
 
-# Per-family overrides. Keyed by the architecture family (not the size suffix),
-# so "yolov8n", "yolov8s", ... all share the "yolov8" entry. Kept intentionally
-# minimal / documented as tunable -- fill these in per checkpoint as needed.
 NAME_MAPPINGS: Dict[str, Dict[str, str]] = {
-    # Ultralytics-style checkpoints (v5/v8/v10/11/12/26). Their state_dict keys
-    # are already ``model.<idx>.<module>.<param>`` which matches the kyolo
-    # dotted naming, so the identity mapping is the correct starting point.
     "yolov5": {},
     "yolov8": {},
     "yolov10": {},
     "yolo11": {},
     "yolo12": {},
     "yolo26": {},
-    # WongKinYiu YOLOv9. Structural names align; the head may need attention.
     "yolov9": {},
 }
 
@@ -59,8 +50,7 @@ def _family_of(model_name: str) -> str:
     not recognised.
     """
     name = model_name.lower().strip()
-    # Order matters: check longer / more specific prefixes first so that e.g.
-    # "yolov10" is not swallowed by "yolov1".
+
     for family in (
         "yolov5",
         "yolov8",

@@ -37,21 +37,18 @@ from .reparam import (
 )
 
 __all__ = [
-    # common
     "conv_bn",
     "dw_conv",
     "autopad",
     "act_layer",
     "channels_of",
     "concat_axis",
-    # csp / spp
     "bottleneck",
     "c3",
     "c2f",
     "c3k",
     "c3k2",
     "sppf",
-    # reparam / gelan
     "rep_conv",
     "rep_bottleneck",
     "rep_ncsp",
@@ -62,7 +59,6 @@ __all__ = [
     "sppelan",
     "cblinear",
     "cbfuse",
-    # attention
     "mhsa",
     "psa_block",
     "c2psa",
@@ -73,7 +69,6 @@ __all__ = [
     "area_attention",
     "ablock",
     "a2c2f",
-    # layers
     "DFL",
     "Letterbox",
 ]

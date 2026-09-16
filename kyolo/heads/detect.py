@@ -23,19 +23,10 @@ from ..layers.knames import layers
 
 __all__ = ["detect_head"]
 
-# Ultralytics ``Detect.bias_init`` initialises the box branch's output conv bias
-# to 1.0. This matters far more than it looks: for a DFL-free head (``reg_max ==
-# 1``, i.e. YOLO26) the four box channels *are* the predicted distances, so a
-# zero bias makes every predicted box zero-area, which drives IoU -- and hence
-# the assigner's ``iou ** beta`` alignment metric -- to exactly 0. No anchor
-# then earns any weight, box/DFL loss is identically zero, and the box branch
-# never receives gradient. A bias of 1.0 breaks that deadlock. With
-# ``reg_max > 1`` the DFL softmax over zero logits is uniform, giving an
-# expected distance of ``mean(0..reg_max-1)``, so the branch starts off
-# predicting real boxes either way -- but we match the reference regardless.
+
 _BOX_BIAS = 1.0
 
-# Reference input size behind Ultralytics' class-bias formula.
+
 _BIAS_IMGSZ = 640
 
 
@@ -94,7 +85,6 @@ def detect_head(
 
     outputs = []
     for i, f in enumerate(feats):
-        # --- box (regression) branch ---
         reg = conv_bn(f, c2, 3, 1, act=act, data_format=data_format, name=f"{name}.cv2.{i}.0")
         reg = conv_bn(reg, c2, 3, 1, act=act, data_format=data_format, name=f"{name}.cv2.{i}.1")
         reg = layers.Conv2D(
@@ -106,7 +96,6 @@ def detect_head(
             name=f"{name}.cv2.{i}.2",
         )(reg)
 
-        # --- class branch ---
         if cls_dw:
             cls = dw_conv(
                 f, ch[i], 3, 1, act=act, data_format=data_format, name=f"{name}.cv3.{i}.0.0"

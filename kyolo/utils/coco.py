@@ -14,8 +14,6 @@ __all__ = [
 ]
 
 
-# Mapping ``{class_id -> class_name}`` for the 80 COCO detection classes, in the
-# canonical order used by the YOLO family of models.
 COCO_CLASSES = {
     0: "person",
     1: "bicycle",
@@ -100,8 +98,6 @@ COCO_CLASSES = {
 }
 
 
-# List of the 80 COCO class names ordered by class id (``COCO_CLASS_NAMES[i]``
-# is the name of class ``i``).
 COCO_CLASS_NAMES = [COCO_CLASSES[i] for i in range(len(COCO_CLASSES))]
 
 

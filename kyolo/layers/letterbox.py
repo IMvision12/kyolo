@@ -60,14 +60,7 @@ class Letterbox(keras.layers.Layer):
             inputs = ops.expand_dims(inputs, axis=0)
 
         batch = ops.shape(inputs)[0]
-        # ``ops.image.resize`` needs a *static* Python ``size``: it converts the
-        # value to a bool internally, so a backend tensor raises inside any
-        # graph. Deriving the spatial dims from ``ops.shape`` therefore made this
-        # layer untraceable -- it could not go inside a ``tf.function``, a
-        # ``tf.data.Dataset.map``, a Keras functional model, or anything exported
-        # via ``model.export()``, even with a fully static input signature. Read
-        # them off the static shape instead and keep every derived quantity a
-        # plain Python number. Only the batch dimension may stay dynamic.
+
         cur_h, cur_w = inputs.shape[1], inputs.shape[2]
         if cur_h is None or cur_w is None:
             raise ValueError(
@@ -78,9 +71,7 @@ class Letterbox(keras.layers.Layer):
             )
 
         target_h, target_w = self.new_shape
-        # Python arithmetic throughout. ``round`` here is round-half-to-even,
-        # which is exactly what Ultralytics' ``LetterBox`` does (``int(round(...))``
-        # on Python floats), so the geometry stays bit-comparable with it.
+
         r = min(target_h / cur_h, target_w / cur_w)
         if not self.scaleup:
             r = min(r, 1.0)
@@ -100,8 +91,6 @@ class Letterbox(keras.layers.Layer):
         dw_half = dw / 2.0
         dh_half = dh / 2.0
 
-        # Letterbox always works on channels_last (H, W, C) tensors; pin the
-        # resize data_format so it ignores a channels_first global Keras config.
         resized = ops.image.resize(
             inputs,
             size=[new_h, new_w],
@@ -123,10 +112,6 @@ class Letterbox(keras.layers.Layer):
         )
         final = self._fill_border(padded, top, bottom, left, right)
 
-        # Report the padding that was *actually* applied (``left``/``top``), not the
-        # unrounded half-padding: those differ by 0.5px whenever the total padding
-        # is odd, and the reported value is what callers subtract to invert the
-        # transform. Ultralytics' ``scale_boxes`` likewise subtracts round(dw - 0.1).
         ratio = ops.broadcast_to(ops.convert_to_tensor([[r, r]], dtype="float32"), (batch, 2))
         pad = ops.broadcast_to(
             ops.convert_to_tensor([[float(left), float(top)]], dtype="float32"), (batch, 2)
@@ -139,22 +124,17 @@ class Letterbox(keras.layers.Layer):
         return final, ratio, pad
 
     def _fill_border(self, padded, top, bottom, left, right):
-        # ``padded`` has static spatial dims (the resize target and the pad
-        # widths are Python ints), so build the mask from those and let
-        # ``ops.where`` broadcast over the dynamic batch and the channels rather
-        # than materialising a full-size mask with ``broadcast_to``.
+
         h, w = padded.shape[1], padded.shape[2]
         ys = ops.arange(h, dtype="int32")
         xs = ops.arange(w, dtype="int32")
-        top_m = ops.expand_dims(ys < top, 1)  # (h, 1)
-        bot_m = ops.expand_dims(ys >= (h - bottom), 1)  # (h, 1)
-        left_m = ops.expand_dims(xs < left, 0)  # (1, w)
-        right_m = ops.expand_dims(xs >= (w - right), 0)  # (1, w)
-        border = ops.logical_or(
-            ops.logical_or(top_m, bot_m), ops.logical_or(left_m, right_m)
-        )  # (h, w)
-        border = ops.reshape(border, (1, h, w, 1))  # broadcasts over B and C
-        color = ops.reshape(self.color_norm, (1, 1, 1, 3))  # broadcasts over B, H, W
+        top_m = ops.expand_dims(ys < top, 1)
+        bot_m = ops.expand_dims(ys >= (h - bottom), 1)
+        left_m = ops.expand_dims(xs < left, 0)
+        right_m = ops.expand_dims(xs >= (w - right), 0)
+        border = ops.logical_or(ops.logical_or(top_m, bot_m), ops.logical_or(left_m, right_m))
+        border = ops.reshape(border, (1, h, w, 1))
+        color = ops.reshape(self.color_norm, (1, 1, 1, 3))
         return ops.where(border, color, padded)
 
     def compute_output_shape(self, input_shape):

@@ -181,7 +181,6 @@ import re
 import keras
 
 from kyolo.models import yolov8n
-from kyolo.losses import YOLODetectionLoss
 from kyolo.training import YOLODetector
 
 nc = 80
@@ -196,9 +195,11 @@ for layer in model.layers:
     if m and int(m.group(1)) <= 9:
         layer.trainable = False
 
-# The detector infers nc / reg_max / strides / end_to_end from the model.
-loss = YOLODetectionLoss(nc=nc, reg_max=16, strides=(8, 16, 32))
-detector = YOLODetector(model, loss=loss)
+# The detector infers nc / reg_max / strides / end_to_end from the model and
+# builds the matching criterion from `model.loss_config`, so the gains and the
+# assignment settings do not have to be repeated here. Pass `loss=...` to
+# override it.
+detector = YOLODetector(model)
 detector.compile(optimizer=keras.optimizers.Adam(1e-3))
 
 # `dataset` yields (images, {"boxes", "labels", "mask"}) tuples.
@@ -209,6 +210,24 @@ detections = detector.detect(images, conf_threshold=0.25, iou_threshold=0.45)
 ```
 
 A runnable synthetic-data version lives in [`examples/train.py`](examples/train.py).
+
+### The criterion
+
+`kyolo.losses.YOLODetectionLoss` is Ultralytics' `v8DetectionLoss`: task-aligned
+label assignment, BCE on soft alignment-scaled class targets, CIoU on the
+assigned boxes, and a third regression term whose form follows the box
+parameterization — Distribution Focal Loss where the head predicts bins
+(`reg_max > 1`), and an image-size-normalized L1 where it predicts distances
+directly (`reg_max == 1`, i.e. YOLO26). It is logged as `dfl_loss` or `l1_loss`
+accordingly. The assigner also carries Ultralytics' stride-aware small-target
+expansion (STAL) and the optional tighter `topk2` pass that one-to-one
+assignment needs.
+
+This is checked, not assumed: `tests/integration/test_loss_parity.py` diffs
+every term and the assignment itself (`fg_mask`, `target_bboxes`,
+`target_scores`) against the installed `ultralytics` package on the torch
+backend, and agrees to float32 rounding. Install `ultralytics` and run it with
+`KERAS_BACKEND=torch` — it skips otherwise.
 
 ## Weight conversion
 

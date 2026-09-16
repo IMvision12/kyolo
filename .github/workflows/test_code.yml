@@ -47,14 +47,13 @@ jobs:
           python -m pip install --upgrade pip setuptools
           pip install -U "keras>=3.5.0" pytest pytest-cov
           if [ "${{ matrix.backend }}" = "torch" ]; then
-            # CPU-only torch wheel keeps the runner CUDA-free.
             pip install --index-url https://download.pytorch.org/whl/cpu torch
           elif [ "${{ matrix.backend }}" = "jax" ]; then
             pip install "jax[cpu]"
           else
             pip install "tensorflow-cpu>=2.16"
           fi
-          pip install -e .  # brings in matplotlib + pillow (core deps)
+          pip install -e .
       - name: Run tests
         run: |
           pytest tests/ -v --durations=20 --cov=kyolo -m "not slow and not gpu"

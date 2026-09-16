@@ -18,7 +18,6 @@ from .config import YOLO12_CONFIG
 __all__ = ["YOLO12_CONFIG", "build_yolo12", "YOLO12"]
 
 
-# variant: (depth, width, max_channels)
 def build_yolo12(
     variant="n",
     nc=80,
@@ -32,9 +31,6 @@ def build_yolo12(
     data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
-    # Ultralytics parse_model scale overrides: the early C3k2 blocks switch to
-    # C3k inner blocks for the M/L/X scales, and A2C2f gains a learnable residual
-    # (gamma) with mlp_ratio=1.2 for L/X (n/s keep Bottleneck / mlp_ratio=2.0).
     c3k_early = variant in ("m", "l", "x")
     a2_kwargs = {
         "a2": True,
@@ -58,7 +54,6 @@ def build_yolo12(
 
     inp = image_input(input_shape, data_format)
 
-    # --- backbone ---
     x = conv_bn(inp, ch(64), 3, 2, data_format=data_format, name="model.0")
     x = conv_bn(x, ch(128), 3, 2, data_format=data_format, name="model.1")
     x = c3k2(x, ch(256), nd(2), use_c3k=c3k_early, e=0.25, data_format=data_format, name="model.2")
@@ -72,7 +67,6 @@ def build_yolo12(
     x = a2c2f(x, ch(1024), nd(4), area=1, data_format=data_format, name="model.8", **a2_kwargs)
     p5 = x
 
-    # --- neck (A2C2f here use a2=False -> C3k blocks; P5 stage is C3k2) ---
     t = cat([up(p5, "up0"), p4], "cat0")
     p4n = a2c2f(t, ch(512), nd(2), a2=False, data_format=data_format, name="model.11")
     t = cat([up(p4n, "up1"), p3], "cat1")
@@ -90,8 +84,8 @@ def build_yolo12(
         cls_dw=True,
         data_format=data_format,
         name=f"yolo12{variant}",
-        head_name="model.21",  # matches the Ultralytics YOLO12 Detect module index
-        backbone_end=8,  # model.0 - model.8 (A2C2f)
+        head_name="model.21",
+        backbone_end=8,
     )
 
 

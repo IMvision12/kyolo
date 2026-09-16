@@ -4,13 +4,23 @@ Mirrors the Ultralytics ``yolo26.yaml``: a C3k2 + SPPF + C2PSA backbone (the
 YOLO11 lineage) feeding the shared head. YOLO26 is natively **DFL-free**
 (``reg_max = 1``: the head regresses the four box distances directly).
 
+Being DFL-free changes how it is trained, not just decoded: with no bins to
+classify, :class:`kyolo.losses.BboxLoss` supervises the box distances with an
+image-size-normalized L1 instead of the Distribution Focal Loss, reported as
+``l1`` rather than ``dfl``.
+
 Notes / approximations:
   * Like kyolo's YOLOv10, only the ``cv2``/``cv3`` (one-to-many) head is built;
     the checkpoint's ``one2one_cv2``/``one2one_cv3`` deployment head that makes
     the official model NMS-free is not reproduced (its weights are simply
     skipped on conversion). Decode with the default (NMS) ``YOLOPostprocessor``;
     the NMS-free top-k decode (``end_to_end=True``) would return duplicate boxes.
-  * ProgLoss / STAL training refinements are not reproduced.
+  * STAL (small-target-aware label assignment) *is* reproduced, in
+    :class:`kyolo.ops.TaskAlignedAssigner` -- it is stride-driven rather than
+    architectural, so every family gets it, as in Ultralytics.
+  * ProgLoss is implemented as :class:`kyolo.losses.E2EDetectionLoss`, but it
+    supervises a one-to-many *and* a one-to-one branch, so it only becomes
+    usable once the one2one head above exists.
 """
 
 from __future__ import annotations
@@ -24,22 +34,19 @@ from .config import YOLO26_CONFIG
 __all__ = ["YOLO26_CONFIG", "build_yolo26", "YOLO26"]
 
 
-# variant: (depth, width, max_channels)
 def build_yolo26(
     variant="n",
     nc=80,
     input_shape=(640, 640, 3),
     data_format=None,
     deploy=True,
-    reg_max=1,  # YOLO26 is DFL-free
+    reg_max=1,
     **kwargs,
 ):
     d, w, mc = YOLO26_CONFIG[variant]
     data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
-    # Ultralytics parse_model scale override: the early C3k2 blocks switch to
-    # C3k inner blocks for the M/L/X scales (n/s keep the Bottleneck inner).
     c3k_early = variant in ("m", "l", "x")
 
     def ch(c):
@@ -58,7 +65,6 @@ def build_yolo26(
 
     inp = image_input(input_shape, data_format)
 
-    # --- backbone ---
     x = conv_bn(inp, ch(64), 3, 2, data_format=data_format, name="model.0")
     x = conv_bn(x, ch(128), 3, 2, data_format=data_format, name="model.1")
     x = c3k2(x, ch(256), nd(2), use_c3k=c3k_early, e=0.25, data_format=data_format, name="model.2")
@@ -74,7 +80,6 @@ def build_yolo26(
     x = c2psa(x, ch(1024), nd(2), data_format=data_format, name="model.10")
     p5 = x
 
-    # --- neck (all head C3k2 blocks use C3k inner, per the yaml) ---
     t = cat([up(p5, "up0"), p4], "cat0")
     p4n = c3k2(t, ch(512), nd(2), use_c3k=True, data_format=data_format, name="model.13")
     t = cat([up(p4n, "up1"), p3], "cat1")
@@ -82,7 +87,7 @@ def build_yolo26(
     t = cat([conv_bn(p3o, ch(256), 3, 2, data_format=data_format, name="model.17"), p4n], "cat2")
     p4o = c3k2(t, ch(512), nd(2), use_c3k=True, data_format=data_format, name="model.19")
     t = cat([conv_bn(p4o, ch(512), 3, 2, data_format=data_format, name="model.20"), p5], "cat3")
-    # model.22 is the C3k2 attn variant (Bottleneck + PSABlock inner), repeats=1.
+
     p5o = c3k2(t, ch(1024), nd(1), attn=True, data_format=data_format, name="model.22")
 
     return finalize_detector(
@@ -93,8 +98,8 @@ def build_yolo26(
         cls_dw=True,
         data_format=data_format,
         name=f"yolo26{variant}",
-        head_name="model.23",  # matches the Ultralytics YOLO26 Detect module index
-        backbone_end=10,  # model.0 - model.10 (C2PSA)
+        head_name="model.23",
+        backbone_end=10,
     )
 
 

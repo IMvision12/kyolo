@@ -72,7 +72,6 @@ def rep_conv(
         a = act_layer(act, name=f"{name}.act")
         return a(y) if a is not None else y
 
-    # --- training (multi-branch) ---
     branch_3 = conv_bn(
         x,
         c2,
@@ -98,9 +97,6 @@ def rep_conv(
     return a(y) if a is not None else y
 
 
-# --------------------------------------------------------------------------- #
-# GELAN family (YOLOv9)
-# --------------------------------------------------------------------------- #
 def rep_bottleneck(
     x,
     c2,

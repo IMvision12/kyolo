@@ -22,7 +22,7 @@ try:
     from kyolo.models import yolov8n
 
     _IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover - depends on environment
+except Exception as exc:
     _IMPORT_ERROR = exc
 
 pytestmark = pytest.mark.skipif(
@@ -46,7 +46,7 @@ def _torch_key(var):
 def _to_torch_layout(array, path):
     """Invert the Keras<-Torch transpose so the fixture has Torch-side shapes."""
     if path.endswith("kernel") and array.ndim == 4:
-        return np.transpose(array, (3, 2, 0, 1))  # HWIO -> OIHW
+        return np.transpose(array, (3, 2, 0, 1))
     if path.endswith("kernel") and array.ndim == 2:
         return np.transpose(array, (1, 0))
     return array
@@ -183,7 +183,7 @@ def test_error_message_names_the_offending_variables(model, tmp_path):
     with pytest.raises(ValueError) as excinfo:
         _convert(model, state, tmp_path)
     message = str(excinfo.value)
-    assert dropped in message  # the specific torch key that was missing
-    assert "load_pretrained_weights" in message  # the fine-tuning route
-    assert "allow_partial" in message  # how to override
-    assert "checkpoint.pt" in message  # which file was being converted
+    assert dropped in message
+    assert "load_pretrained_weights" in message
+    assert "allow_partial" in message
+    assert "checkpoint.pt" in message

@@ -9,7 +9,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# Skip the whole module if keras / a backend / the kyolo subpackages are missing.
 try:
     import keras
     from keras import ops
@@ -20,7 +19,7 @@ try:
     from kyolo.preprocessing import YOLOPreprocessor
 
     _IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover - depends on environment
+except Exception as exc:
     keras = None
     YOLOPostprocessor = None
     YOLOPreprocessor = None
@@ -33,7 +32,7 @@ pytestmark = pytest.mark.skipif(
 
 NC = 80
 REG_MAX = 16
-CHANNELS = 4 * REG_MAX + NC  # 144
+CHANNELS = 4 * REG_MAX + NC
 MAX_DETECTIONS = 300
 
 
@@ -48,9 +47,6 @@ requires_tensorflow = pytest.mark.skipif(
 )
 
 
-# --------------------------------------------------------------------------- #
-# Preprocessing
-# --------------------------------------------------------------------------- #
 def test_preprocessor_letterbox_shapes():
     """A (480, 640, 3) uint8 image is letterboxed to (1, 640, 640, 3)."""
     image = np.random.randint(0, 256, size=(480, 640, 3), dtype="uint8")
@@ -65,7 +61,7 @@ def test_preprocessor_letterbox_shapes():
 
 
 def test_preprocessor_scales_uint8_and_0_255_floats_to_unit_range():
-    pre = YOLOPreprocessor(image_size=64)  # square input -> no padding involved
+    pre = YOLOPreprocessor(image_size=64)
     uint8_img = np.full((64, 64, 3), 200, dtype="uint8")
     float_img = np.full((64, 64, 3), 200.0, dtype="float32")
     np.testing.assert_allclose(_np(pre(uint8_img)["images"]), 200 / 255.0, rtol=1e-5)
@@ -84,7 +80,7 @@ def test_preprocessor_auto_range_is_per_image():
 
 
 def test_preprocessor_explicit_input_range_overrides_heuristic():
-    dark_0_255 = np.full((64, 64, 3), 0.5, dtype="float32")  # darker than 1/255
+    dark_0_255 = np.full((64, 64, 3), 0.5, dtype="float32")
     bright_unit = np.full((64, 64, 3), 200.0, dtype="float32")
     forced_255 = YOLOPreprocessor(image_size=64, input_range=(0, 255))
     forced_unit = YOLOPreprocessor(image_size=64, input_range=(0, 1))
@@ -95,10 +91,10 @@ def test_preprocessor_explicit_input_range_overrides_heuristic():
 
 
 def test_preprocessor_normalize_false_leaves_pixels_and_pad_untouched():
-    image = np.full((32, 64, 3), 200.0, dtype="float32")  # 2:1 -> letterbox pads top/bottom
+    image = np.full((32, 64, 3), 200.0, dtype="float32")
     raw = _np(YOLOPreprocessor(image_size=64, normalize=False)(image)["images"])[0]
     unit = _np(YOLOPreprocessor(image_size=64, normalize=True)(image)["images"])[0]
-    # image rows keep their raw value, pad rows carry the raw 114 gray
+
     assert raw[32, 0, 0] == pytest.approx(200.0)
     assert raw[0, 0, 0] == pytest.approx(114.0)
     assert unit[32, 0, 0] == pytest.approx(200 / 255.0, rel=1e-5)
@@ -154,12 +150,12 @@ def test_preprocessor_compute_output_shape():
     shapes = pre.compute_output_shape((None, 40, 50, 3))
     assert shapes["images"] == (None, 64, 64, 3)
     assert shapes["ratio"] == (None, 2) and shapes["pad"] == (None, 2)
-    # a single (H, W, C) image still comes back batched
+
     assert pre.compute_output_shape((40, 50, 3))["images"] == (1, 64, 64, 3)
-    # channels_first swaps the layout
+
     first = YOLOPreprocessor(image_size=64, data_format="channels_first")
     assert first.compute_output_shape((None, 40, 50, 3))["images"] == (None, 3, 64, 64)
-    # auto padding is input-dependent, so the spatial dims are unknown
+
     auto = YOLOPreprocessor(image_size=64, auto=True)
     assert auto.compute_output_shape((None, 40, 50, 3))["images"] == (None, None, None, 3)
 
@@ -192,7 +188,6 @@ def test_preprocessor_traceable_in_graph_mode():
     )
     np.testing.assert_allclose(_np(static(image)["images"]), _np(pre(image)["images"]), atol=1e-5)
 
-    # only the batch dimension may stay dynamic
     dynamic = tf.function(
         lambda x: pre(x), input_signature=[tf.TensorSpec([None, 40, 50, 3], tf.float32)]
     )
@@ -201,7 +196,6 @@ def test_preprocessor_traceable_in_graph_mode():
         assert tuple(out["images"].shape) == (batch, 64, 64, 3)
         assert tuple(out["ratio"].shape) == (batch, 2)
 
-    # and it works inside a tf.data pipeline
     dataset = tf.data.Dataset.from_tensor_slices(np.random.rand(4, 40, 50, 3).astype("float32"))
     dataset = dataset.map(lambda x: pre(x)["images"])
     assert tuple(next(iter(dataset)).shape) == (1, 64, 64, 3)
@@ -245,16 +239,13 @@ def test_end_to_end_pipeline_exports_to_saved_model():
     with tempfile.TemporaryDirectory() as directory:
         path = f"{directory}/exported"
         full.export(path)
-        # keep a reference: the loaded object owns the variables `serve` closes over
+
         reloaded = tf.saved_model.load(path)
         served = reloaded.serve(np.random.rand(1, 40, 50, 3).astype("float32"))
         assert tuple(served.shape) == (1, 10, 6)
         assert np.isfinite(_np(served)).all()
 
 
-# --------------------------------------------------------------------------- #
-# Coordinate inversion (scale_boxes / clip_boxes)
-# --------------------------------------------------------------------------- #
 def _reference_scale_boxes(boxes, ratio, pad, orig_shape):
     """Port of Ultralytics' ``scale_boxes`` + ``clip_boxes`` (numpy, non-mutating)."""
     out = np.array(boxes, dtype="float64", copy=True)
@@ -277,7 +268,7 @@ def test_scale_boxes_matches_reference(h, w):
     rng = np.random.default_rng(0)
     out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
     ratio, pad = _np(out["ratio"])[0], _np(out["pad"])[0]
-    # sorted so x1 <= x2, and deliberately out of bounds so clipping is exercised
+
     boxes = np.sort(rng.uniform(-40, 700, size=(16, 4)).astype("float32"), axis=-1)
     got = _np(scale_boxes(boxes, ratio, pad, (h, w)))
     want = _reference_scale_boxes(boxes, ratio, pad, (h, w))
@@ -293,7 +284,7 @@ def test_scale_boxes_round_trips_the_preprocessor(h, w):
     """
     out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
     ratio, pad = _np(out["ratio"])[0], _np(out["pad"])[0]
-    # well inside the image, so clipping is not what makes this pass
+
     rng = np.random.default_rng(1)
     orig = np.sort(rng.uniform(5, min(h, w) - 5, size=(64, 4)).astype("float32"), axis=-1)
     letterboxed = orig * np.tile(ratio, 2) + np.tile(pad, 2)
@@ -310,7 +301,7 @@ def test_scale_boxes_passes_through_score_and_class():
     scaled = _np(scale_boxes(detections, _np(out["ratio"]), _np(out["pad"]), (427, 640)))
     assert scaled.shape == detections.shape
     np.testing.assert_allclose(scaled[0, 0, 4:], [0.9, 17.0])
-    # zero-padded rows survive as zeros, so `score > threshold` filters still work
+
     np.testing.assert_allclose(scaled[0, 1], 0.0)
 
 
@@ -339,7 +330,7 @@ def test_scale_boxes_preserves_shape(shape):
 def test_clip_boxes_bounds_to_image():
     boxes = np.array([[-50.0, -50.0, 5000.0, 5000.0]], dtype="float32")
     np.testing.assert_allclose(_np(clip_boxes(boxes, (100, 200)))[0], [0, 0, 200, 100])
-    # clip=False leaves out-of-bounds coordinates alone
+
     unclipped = _np(scale_boxes(boxes, [1.0, 1.0], [0.0, 0.0], clip=False))
     np.testing.assert_allclose(unclipped[0], [-50.0, -50.0, 5000.0, 5000.0])
 
@@ -353,12 +344,9 @@ def test_scale_boxes_rejects_bad_inputs():
         scale_boxes(np.zeros((3, 4), "float32"), np.zeros((2, 2), "float32"), [0.0, 0.0], (1, 1))
 
 
-# --------------------------------------------------------------------------- #
-# Postprocessing / NMS
-# --------------------------------------------------------------------------- #
 def test_postprocessor_output_shape():
     """Raw feats for a 256 input postprocess to (1, max_detections, 6)."""
-    # Feature maps for a 256x256 input at strides (8, 16, 32).
+
     feats = [
         keras.ops.zeros((1, 32, 32, CHANNELS)),
         keras.ops.zeros((1, 16, 16, CHANNELS)),
@@ -385,12 +373,14 @@ def test_postprocessor_output_shape():
 def _reference_nms(boxes, scores, classes, iou_threshold, conf_threshold, max_detections):
     """Plain-Python greedy class-aware NMS; returns kept indices in score order."""
 
+    def _area(r):
+        return (r[2] - r[0]) * (r[3] - r[1])
+
     def iou(a, b):
         x1, y1 = max(a[0], b[0]), max(a[1], b[1])
         x2, y2 = min(a[2], b[2]), min(a[3], b[3])
         inter = max(x2 - x1, 0.0) * max(y2 - y1, 0.0)
-        area = lambda r: (r[2] - r[0]) * (r[3] - r[1])  # noqa: E731
-        return inter / (area(a) + area(b) - inter + 1e-7)
+        return inter / (_area(a) + _area(b) - inter + 1e-7)
 
     keep = []
     for i in np.argsort(-scores, kind="stable"):
@@ -434,7 +424,7 @@ def test_batched_nms_matches_reference(max_detections):
         )
         assert len(got) == len(keep)
         np.testing.assert_allclose(got, expected, atol=1e-4)
-        # padding rows are all zero
+
         assert not out[b][len(keep) :].any()
 
 
@@ -486,10 +476,12 @@ def test_batched_nms_keeps_candidates_beyond_the_old_1000_cap():
     at ordinary anchor counts.
     """
     boxes, scores, classes = _self_suppressing_then_separated()
-    kept = lambda out: int((_np(out)[0, :, 4] > 0).sum())  # noqa: E731
+
+    def kept(out):
+        return int((_np(out)[0, :, 4] > 0).sum())
 
     assert kept(batched_nms(boxes, scores, classes, 0.5, 300, 0.25)) == 300
-    # the cap is still honoured when asked for explicitly, and still costs recall
+
     assert kept(batched_nms(boxes, scores, classes, 0.5, 300, 0.25, pre_nms_topk=1000)) == 1
 
 
@@ -514,8 +506,8 @@ def test_batched_nms_early_exit_matches_full_sweep():
 def test_batched_nms_handles_negative_coordinates_and_empty_images():
     rng = np.random.default_rng(1)
     boxes, scores, classes = _clustered_boxes(rng, batch=2, n=100)
-    boxes -= 400.0  # push most coordinates negative
-    scores[1] = 0.0  # second image has nothing above threshold
+    boxes -= 400.0
+    scores[1] = 0.0
     out = _np(batched_nms(boxes, scores, classes, 0.5, 30, 0.25))
     keep = _reference_nms(boxes[0], scores[0], classes[0], 0.5, 0.25, 30)
     got = out[0][out[0][:, 4] > 0]

@@ -45,15 +45,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Backends (pick one) -------------------------------------------------------
 tensorflow = ["tensorflow>=2.16"]
 jax = ["jax>=0.4.28"]
 torch = ["torch>=2.2", "torchvision>=0.17"]
 
-# Weight conversion from the official (AGPL-3.0) PyTorch checkpoints --------
 conversion = ["torch>=2.2", "ultralytics>=8.2.0"]
 
-# Tests ---------------------------------------------------------------------
 tests = ["pytest", "pytest-cov"]
 
 [project.urls]
@@ -65,8 +62,6 @@ repository = "https://github.com/IMvision12/kyolo.git"
 find = { include = ["kyolo*"] }
 
 [tool.setuptools.dynamic]
-# Point at the string literal in version.py so setuptools can read it
-# statically (via AST) during an isolated build without importing keras.
 version = { attr = "kyolo.version.__version__" }
 
 [tool.coverage.run]

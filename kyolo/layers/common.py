@@ -81,12 +81,12 @@ def act_layer(act, name=None):
         ``None`` when no activation should be applied.
     """
     if act is True:
-        return layers.Activation("swish", name=name)  # SiLU == swish(beta=1)
+        return layers.Activation("swish", name=name)
     if act is False or act is None:
         return None
     if isinstance(act, str):
         return layers.Activation(act, name=name)
-    # Already a layer / callable.
+
     return act
 
 
@@ -134,7 +134,6 @@ def conv_bn(
         x = layers.ZeroPadding2D(padding=pad, data_format=data_format, name=f"{name}.pad")(x)
         conv_padding = "valid"
     else:
-        # stride 1 with symmetric autopad is equivalent to "same".
         conv_padding = "same"
 
     x = layers.Conv2D(
@@ -180,7 +179,7 @@ def dw_conv(
     Keras handles the general grouped case via ``groups``.
     """
     c1 = channels_of(x, data_format)
-    groups = int(c1)  # depth-wise: one group per input channel
+    groups = int(c1)
     return conv_bn(
         x,
         filters,

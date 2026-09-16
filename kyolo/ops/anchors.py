@@ -58,15 +58,38 @@ def dist2bbox(distance, anchor_points, xywh=True, axis=-1):
     return ops.concatenate([x1y1, x2y2], axis=axis)
 
 
-def bbox2dist(anchor_points, bbox, reg_max, axis=-1):
-    """Inverse of :func:`dist2bbox` for xyxy boxes, clipped to ``[0, reg_max-1)``.
+def bbox2dist(anchor_points, bbox, reg_max=None, axis=-1):
+    """Inverse of :func:`dist2bbox` for xyxy boxes.
 
-    Used to build DFL regression targets in the loss.
+    Used to build the box regression targets in the loss.
+
+    Args:
+        anchor_points: broadcastable ``(..., 2)`` anchor centres (x, y).
+        bbox: ``(..., 4)`` xyxy boxes, same units as ``anchor_points``.
+        reg_max: DFL bin count. When given, the distances are clipped to
+            ``[0, reg_max - 1 - 0.01]`` so they land inside the bin range that
+            :class:`~kyolo.losses.DistributionFocalLoss` can represent. Pass
+            ``None`` (the default) for the raw, unclipped distances -- which is
+            what the DFL-free ``reg_max == 1`` L1 path needs, since clipping
+            there would both be meaningless and destroy the sign.
+        axis: split/concat axis (the size-4 axis).
+
+    Raises:
+        ValueError: if ``reg_max`` is 1 or less. There is no representable bin
+            range to clip into, and ``clip(dist, 0, -0.01)`` -- lower bound above
+            upper bound -- silently returns all zeros on most backends.
     """
     x1y1, x2y2 = ops.split(bbox, 2, axis=axis)
     lt = anchor_points - x1y1
     rb = x2y2 - anchor_points
     dist = ops.concatenate([lt, rb], axis=axis)
+    if reg_max is None:
+        return dist
+    if reg_max <= 1:
+        raise ValueError(
+            f"bbox2dist got reg_max={reg_max}, which has no DFL bin range to clip into. "
+            "Pass reg_max=None for raw distances (the DFL-free path)."
+        )
     return ops.clip(dist, 0.0, reg_max - 1 - 0.01)
 
 
@@ -100,24 +123,23 @@ def decode_raw_predictions(feats, strides, reg_max, nc, dfl_layer, data_format="
         w = ops.shape(f)[2]
         shapes.append((h, w))
         flat.append(ops.reshape(f, (b, h * w, no)))
-    x = ops.concatenate(flat, axis=1)  # (B, A, no)
+    x = ops.concatenate(flat, axis=1)
 
     box = x[..., : no - nc]
     cls = x[..., no - nc :]
 
-    anchors, stride_t = make_anchors(shapes, strides)  # (A,2), (A,1)
-    anchors = ops.expand_dims(anchors, 0)  # (1,A,2)
-    stride_t = ops.expand_dims(stride_t, 0)  # (1,A,1)
+    anchors, stride_t = make_anchors(shapes, strides)
+    anchors = ops.expand_dims(anchors, 0)
+    stride_t = ops.expand_dims(stride_t, 0)
 
     if dfl_layer is not None:
-        # DFL expects (B, 4*reg_max, A)
         box_t = ops.transpose(box, (0, 2, 1))
-        dist = dfl_layer(box_t)  # (B, 4, A)
-        dist = ops.transpose(dist, (0, 2, 1))  # (B, A, 4)
+        dist = dfl_layer(box_t)
+        dist = ops.transpose(dist, (0, 2, 1))
     else:
-        dist = box  # already 4 distances
+        dist = box
 
-    boxes = dist2bbox(dist, anchors, xywh=True, axis=-1)  # grid units
-    boxes = boxes * stride_t  # -> pixels
+    boxes = dist2bbox(dist, anchors, xywh=True, axis=-1)
+    boxes = boxes * stride_t
     scores = ops.sigmoid(cls)
     return boxes, scores

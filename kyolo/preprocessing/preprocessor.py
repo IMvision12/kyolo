@@ -100,8 +100,6 @@ class YOLOPreprocessor(keras.layers.Layer):
         self._mean = ops.convert_to_tensor(mean if mean is not None else [0.0, 0.0, 0.0], "float32")
         self._std = ops.convert_to_tensor(std if std is not None else [1.0, 1.0, 1.0], "float32")
         if self.do_letterbox:
-            # The pad colour must be in the same units as the image it fills:
-            # /255 when the image has been scaled to [0, 1], raw otherwise.
             self.lb = Letterbox(
                 new_shape=image_size,
                 color=pad_color,
@@ -127,8 +125,7 @@ class YOLOPreprocessor(keras.layers.Layer):
             return x
         if self.input_range == (0, 255) or integer_input:
             return x / 255.0
-        # Auto-detect for float inputs, judging every image on its own maximum
-        # so a 0-255 image and a [0, 1] image in the same batch are both right.
+
         per_image_max = ops.max(x, axis=(1, 2, 3), keepdims=True)
         return ops.where(per_image_max > 1.0, x / 255.0, x)
 
@@ -149,8 +146,7 @@ class YOLOPreprocessor(keras.layers.Layer):
             x, ratio, pad = self.lb(x)
         else:
             b = ops.shape(x)[0]
-            # Process in channels_last regardless of the global config; the
-            # output is transposed to self.data_format at the end of call().
+
             x = ops.image.resize(
                 x,
                 size=[self.image_size, self.image_size],
@@ -164,18 +160,15 @@ class YOLOPreprocessor(keras.layers.Layer):
             x = (x - self._mean) / self._std
 
         if self.data_format == "channels_first":
-            x = ops.transpose(x, (0, 3, 1, 2))  # (B,H,W,C) -> (B,C,H,W)
+            x = ops.transpose(x, (0, 3, 1, 2))
 
         return {"images": x, "ratio": ratio, "pad": pad}
 
     def compute_output_shape(self, input_shape):
         """Declared so symbolic / functional use never has to trace ``call``."""
-        # Inputs are accepted as (H, W, C) or (B, H, W, C); the output is always
-        # batched, so a single image becomes B=1.
+
         batch = input_shape[0] if len(input_shape) == 4 else 1
         if self.auto:
-            # Minimal-rectangle padding: the spatial size depends on the input's
-            # aspect ratio, so it is not a fixed square.
             height = width = None
         else:
             height = width = self.image_size
@@ -192,9 +185,9 @@ class YOLOPreprocessor(keras.layers.Layer):
         imgs = []
         for p in paths:
             img = keras.utils.load_img(p)
-            # uint8 so the 0-255 range is known, not guessed
+
             imgs.append(keras.utils.img_to_array(img, dtype="uint8"))
-        # letterbox handles differing sizes -> stack after resize by looping
+
         batch = [self.call(img) for img in imgs]
         images = ops.concatenate([b["images"] for b in batch], axis=0)
         ratio = ops.concatenate([b["ratio"] for b in batch], axis=0)

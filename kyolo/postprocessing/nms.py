@@ -28,17 +28,13 @@ from ..ops.boxes import xywh2xyxy
 
 __all__ = ["batched_nms", "top_k_detections", "detections_to_list", "NonMaxSuppression"]
 
-# Score given to candidates that only exist to pad a dynamically-shaped batch up
-# to ``k`` columns. It must fail ``scores > conf_threshold`` for every sane
-# threshold; ``-inf`` is only ever compared or replaced, never used in
-# arithmetic, so it cannot produce a NaN.
+
 _PAD_SCORE = float("-inf")
 
 
 def _box_areas(boxes):
     """Areas of xyxy ``boxes`` (B,K,4) -> (B,K)."""
-    # Lower-bound-only clamp via maximum: ops.clip with a None bound is not
-    # portable across backends (fails on TensorFlow and PyTorch).
+
     return ops.maximum(boxes[..., 2] - boxes[..., 0], 0.0) * ops.maximum(
         boxes[..., 3] - boxes[..., 1], 0.0
     )
@@ -51,15 +47,15 @@ def _iou_row(boxes, areas, i, eps=1e-7):
     at ``O(B*K)``; the arithmetic is elementwise and identical to building the
     full matrix, so the result is bit-for-bit the same.
     """
-    b1 = ops.expand_dims(ops.take(boxes, i, axis=1), 1)  # (B,1,4)
-    area_i = ops.expand_dims(ops.take(areas, i, axis=1), 1)  # (B,1)
+    b1 = ops.expand_dims(ops.take(boxes, i, axis=1), 1)
+    area_i = ops.expand_dims(ops.take(areas, i, axis=1), 1)
     iw = ops.maximum(
         ops.minimum(b1[..., 2], boxes[..., 2]) - ops.maximum(b1[..., 0], boxes[..., 0]), 0.0
     )
     ih = ops.maximum(
         ops.minimum(b1[..., 3], boxes[..., 3]) - ops.maximum(b1[..., 1], boxes[..., 1]), 0.0
     )
-    inter = iw * ih  # (B,K)
+    inter = iw * ih
     return inter / (area_i + areas - inter + eps)
 
 
@@ -116,49 +112,32 @@ def batched_nms(
     if n_static is not None:
         k = min(k, n_static)
     else:
-        # N is unknown at trace time (a tf.function / SavedModel with a dynamic
-        # input signature), so it cannot be clamped against. ``ops.top_k`` needs
-        # a static ``k`` and fails outright when handed fewer than ``k`` columns
-        # ("input must have at least k columns"), so pad by a static ``k``
-        # instead: ``N + k >= k`` holds for every N. The padded candidates score
-        # ``-inf`` so they fail the ``valid`` threshold below and are discarded
-        # by the final compaction, and their boxes are zeros, so they have zero
-        # area and can never suppress or be suppressed.
         scores = ops.pad(scores, [[0, 0], [0, k]], constant_values=_PAD_SCORE)
         boxes = ops.pad(boxes, [[0, 0], [0, k], [0, 0]])
         classes_f = ops.pad(classes_f, [[0, 0], [0, k]])
 
-    # Highest-scoring K candidates per image, sorted, so the sweep visits them
-    # in NMS order and the survivors come out already ranked.
-    scores, order = ops.top_k(scores, k=k)  # (B,K) descending
+    scores, order = ops.top_k(scores, k=k)
     classes_f = ops.take_along_axis(classes_f, order, axis=1)
     boxes = _gather_rows(boxes, order)
-    valid = scores > conf_threshold  # (B,K) bool, a prefix of every row
+    valid = scores > conf_threshold
 
-    # Class-aware coordinate offset so boxes of different classes never overlap.
-    # The span (not just the max) keeps classes apart with negative coordinates.
     span = ops.max(boxes) - ops.min(boxes) + 1.0
     off_boxes = boxes + ops.expand_dims(classes_f * span, -1)
-    areas = _box_areas(off_boxes)  # (B,K), reused by every row
-    positions = ops.arange(k, dtype="int32")  # (K,)
+    areas = _box_areas(off_boxes)
+    positions = ops.arange(k, dtype="int32")
 
-    # Only the above-threshold prefix needs to be swept: everything after it is
-    # neither kept nor able to suppress anything.
     n_iter = ops.max(ops.sum(ops.cast(valid, "int32"), axis=1))
     zero = ops.convert_to_tensor(0, dtype="int32")
-    n_kept = ops.zeros_like(ops.sum(ops.cast(valid, "int32"), axis=1))  # (B,)
+    n_kept = ops.zeros_like(ops.sum(ops.cast(valid, "int32"), axis=1))
 
     def cond(i, keep, n_kept):
-        # Also stop once every image has `max_detections` confirmed survivors:
-        # anything later scores lower, so it cannot reach the output whether or
-        # not it would have been suppressed.
+
         return ops.logical_and(i < n_iter, ops.min(n_kept) < max_detections)
 
     def body(i, keep, n_kept):
-        # keep[i] is final here: every j < i has already applied its suppression.
-        kept_i = ops.take(keep, i, axis=1)  # (B,)
-        # What candidate i suppresses. Only lower-ranked boxes (j > i) can be
-        # suppressed, never the box itself.
+
+        kept_i = ops.take(keep, i, axis=1)
+
         row = ops.logical_and(
             _iou_row(off_boxes, areas, i) > iou_threshold,
             ops.expand_dims(positions > i, 0),
@@ -172,17 +151,16 @@ def batched_nms(
 
     _, keep, _ = ops.while_loop(cond, body, (zero, valid, n_kept))
 
-    # Compact the survivors (already in descending-score order) to the front.
     kept_scores = ops.where(keep, scores, -1.0)
     if k < max_detections:
         pad = max_detections - k
         kept_scores = ops.pad(kept_scores, [[0, 0], [0, pad]], constant_values=-1.0)
         boxes = ops.pad(boxes, [[0, 0], [0, pad], [0, 0]])
         classes_f = ops.pad(classes_f, [[0, 0], [0, pad]])
-    top_scores, idx = ops.top_k(kept_scores, k=max_detections)  # (B,max_det)
-    sel_boxes = _gather_rows(boxes, idx)  # (B,max_det,4)
-    sel_cls = ops.take_along_axis(classes_f, idx, axis=1)  # (B,max_det)
-    valid_out = ops.cast(top_scores >= 0.0, "float32")  # suppressed / padding rows carry -1
+    top_scores, idx = ops.top_k(kept_scores, k=max_detections)
+    sel_boxes = _gather_rows(boxes, idx)
+    sel_cls = ops.take_along_axis(classes_f, idx, axis=1)
+    valid_out = ops.cast(top_scores >= 0.0, "float32")
 
     det = ops.concatenate(
         [
@@ -191,7 +169,7 @@ def batched_nms(
             ops.expand_dims(sel_cls, -1),
         ],
         axis=-1,
-    )  # (B, max_det, 6)
+    )
     return det * ops.expand_dims(valid_out, -1)
 
 
@@ -213,13 +191,13 @@ def top_k_detections(boxes, scores, max_detections=300, conf_threshold=0.0):
     b = ops.shape(scores)[0]
     a = ops.shape(scores)[1]
     nc = ops.shape(scores)[2]
-    flat = ops.reshape(scores, (b, a * nc))  # (B, A*nc)
+    flat = ops.reshape(scores, (b, a * nc))
     top_scores, top_idx = ops.top_k(flat, k=max_detections)
-    anchor_idx = top_idx // nc  # (B, k)
+    anchor_idx = top_idx // nc
     class_idx = top_idx % nc
 
     idx4 = ops.broadcast_to(ops.expand_dims(anchor_idx, -1), (b, max_detections, 4))
-    sel_boxes = ops.take_along_axis(boxes, idx4, axis=1)  # (B,k,4)
+    sel_boxes = ops.take_along_axis(boxes, idx4, axis=1)
 
     valid = ops.cast(top_scores > conf_threshold, "float32")
     det = ops.concatenate(
@@ -284,8 +262,7 @@ class NonMaxSuppression(keras.layers.Layer):
         )
 
     def compute_output_shape(self, input_shape):
-        # Declared explicitly so symbolic (functional-model) use never has to
-        # trace the data-dependent while_loop inside ``call``.
+
         return (input_shape[0], self.max_detections, 6)
 
     def get_config(self):

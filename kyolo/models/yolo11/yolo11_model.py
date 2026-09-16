@@ -11,7 +11,6 @@ from .config import YOLO11_CONFIG
 __all__ = ["YOLO11_CONFIG", "build_yolo11", "YOLO11"]
 
 
-# variant: (depth, width, max_channels)
 def build_yolo11(
     variant="n",
     nc=80,
@@ -25,9 +24,6 @@ def build_yolo11(
     data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
-    # Ultralytics parse_model scale override: for the m/l/x scales EVERY C3k2
-    # switches to C3k inner blocks; n/s follow the per-layer yaml flag (only
-    # model.6/8/22 are C3k there).
     mlx = variant in ("m", "l", "x")
 
     def uc3k(idx):
@@ -49,7 +45,6 @@ def build_yolo11(
 
     inp = image_input(input_shape, data_format)
 
-    # --- backbone ---
     x = conv_bn(inp, ch(64), 3, 2, data_format=data_format, name="model.0")
     x = conv_bn(x, ch(128), 3, 2, data_format=data_format, name="model.1")
     x = c3k2(x, ch(256), nd(2), use_c3k=uc3k(2), e=0.25, data_format=data_format, name="model.2")
@@ -65,7 +60,6 @@ def build_yolo11(
     x = c2psa(x, ch(1024), nd(2), data_format=data_format, name="model.10")
     p5 = x
 
-    # --- neck ---
     t = cat([up(p5, "up0"), p4], "cat0")
     p4n = c3k2(t, ch(512), nd(2), use_c3k=uc3k(13), data_format=data_format, name="model.13")
     t = cat([up(p4n, "up1"), p3], "cat1")
@@ -83,8 +77,8 @@ def build_yolo11(
         cls_dw=True,
         data_format=data_format,
         name=f"yolo11{variant}",
-        head_name="model.23",  # matches the Ultralytics YOLO11 Detect module index
-        backbone_end=10,  # model.0 - model.10 (C2PSA)
+        head_name="model.23",
+        backbone_end=10,
     )
 
 
