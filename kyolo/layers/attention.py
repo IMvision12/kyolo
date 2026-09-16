@@ -62,31 +62,30 @@ def mhsa(x, num_heads=4, attn_ratio=0.5, data_format="channels_last", name="attn
     h = dim + nh_kd * 2
 
     xh = _to_nhwc(x, data_format)
-    # spatial dims are static for a fixed input size; batch stays dynamic (-1)
+
     H = xh.shape[1]
     W = xh.shape[2]
     N = H * W
 
     qkv = conv_bn(x, h, 1, 1, act=False, data_format=data_format, name=f"{name}.qkv")
     qkv = _to_nhwc(qkv, data_format)
-    # (B, N, heads, key_dim*2 + head_dim)
+
     qkv = ops.reshape(qkv, (-1, N, num_heads, key_dim * 2 + head_dim))
     q = qkv[..., :key_dim]
     k = qkv[..., key_dim : 2 * key_dim]
     v = qkv[..., 2 * key_dim :]
-    # -> (B, heads, N, d)
+
     q = ops.transpose(q, (0, 2, 1, 3))
     k = ops.transpose(k, (0, 2, 1, 3))
     v = ops.transpose(v, (0, 2, 1, 3))
 
-    attn = ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * scale  # (B,heads,N,N)
+    attn = ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * scale
     attn = ops.softmax(attn, axis=-1)
-    out = ops.matmul(attn, v)  # (B, heads, N, head_dim)
-    out = ops.transpose(out, (0, 2, 1, 3))  # (B, N, heads, head_dim)
+    out = ops.matmul(attn, v)
+    out = ops.transpose(out, (0, 2, 1, 3))
     out = ops.reshape(out, (-1, H, W, dim))
     out = _from_nhwc(out, data_format)
 
-    # depth-wise positional encoding on the value features, laid out as an image
     v_img = ops.reshape(ops.transpose(v, (0, 2, 1, 3)), (-1, H, W, dim))
     v_img = _from_nhwc(v_img, data_format)
     pe = conv_bn(
@@ -234,33 +233,31 @@ def area_attention(x, num_heads=4, area=1, data_format="channels_last", name="aa
     W = xh.shape[2]
     N = H * W
     if area > 1 and N % area != 0:
-        area = 1  # fall back to global attention if the grid is not divisible
-    seq = N // area  # static sequence length per area group
+        area = 1
+    seq = N // area
 
     qkv = conv_bn(x, all_head * 3, 1, 1, act=False, data_format=data_format, name=f"{name}.qkv")
-    qkv = _to_nhwc(qkv, data_format)  # (B,H,W,3*all_head)
-    # partition sequence dim into `area` groups -> (B*area, seq, 3*all_head) via -1 batch
+    qkv = _to_nhwc(qkv, data_format)
+
     qkv = ops.reshape(qkv, (-1, seq, num_heads, head_dim * 3))
     q = qkv[..., :head_dim]
     k = qkv[..., head_dim : 2 * head_dim]
     v = qkv[..., 2 * head_dim :]
-    q = ops.transpose(q, (0, 2, 1, 3))  # (Ba, heads, seq, head_dim)
+    q = ops.transpose(q, (0, 2, 1, 3))
     k = ops.transpose(k, (0, 2, 1, 3))
     v = ops.transpose(v, (0, 2, 1, 3))
 
     attn = ops.matmul(q, ops.transpose(k, (0, 1, 3, 2))) * scale
     attn = ops.softmax(attn, axis=-1)
-    out = ops.matmul(attn, v)  # (Ba, heads, seq, head_dim)
-    out = ops.transpose(out, (0, 2, 1, 3))  # (Ba, seq, heads, head_dim)
+    out = ops.matmul(attn, v)
+    out = ops.transpose(out, (0, 2, 1, 3))
     out = ops.reshape(out, (-1, H, W, all_head))
     out = _from_nhwc(out, data_format)
 
     v_img = ops.transpose(v, (0, 2, 1, 3))
     v_img = ops.reshape(v_img, (-1, H, W, all_head))
     v_img = _from_nhwc(v_img, data_format)
-    # The YOLO12 AAttn positional-encoding conv keeps a bias (unusual for a
-    # conv-bn pair); the official checkpoints were trained with it, so it must
-    # be present for the running-mean-based BN to reproduce the reference.
+
     pe = conv_bn(
         v_img,
         dim,
@@ -360,7 +357,6 @@ def a2c2f(
     num_heads = max(1, c_ // 32)
     for i in range(n):
         if a2:
-            # Ultralytics stacks exactly two ABlocks per inner entry.
             for j in range(2):
                 cur = ablock(
                     cur,

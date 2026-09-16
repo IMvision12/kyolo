@@ -11,10 +11,7 @@ YOLOV10_CONFIG = {
     "x": (1.00, 1.25, 512),
 }
 
-# Which backbone/neck stages use C2fCIB (CIB inner) instead of plain C2f. This
-# varies per scale in the official yolov10 yamls (larger models push CIB into
-# more stages); everything else stays C2f. The large-kernel RepVGGDW CIB
-# (``lk=True``) is used only by the n/s scales.
+
 YOLOV10_CIB_SLOTS = {
     "n": {22},
     "s": {8, 22},

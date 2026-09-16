@@ -41,7 +41,16 @@ __all__ = [
     "image_input",
     "finalize_detector",
     "load_pretrained_weights",
+    "DEFAULT_LOSS_CONFIG",
 ]
+
+
+DEFAULT_LOSS_CONFIG = {
+    "box_gain": 7.5,
+    "cls_gain": 0.5,
+    "dfl_gain": 1.5,
+    "tal_topk": 10,
+}
 
 
 def make_divisible(x, divisor=8):
@@ -70,7 +79,6 @@ def image_input(input_shape=(640, 640, 3), data_format=None, name="images"):
         raise ValueError(f"input_shape must be a 3-tuple, got {input_shape}")
 
     if data_format == "channels_first":
-        # accept either (C,H,W) or (H,W,C) and normalise to (C,H,W)
         if input_shape[0] in (1, 3):
             c, h, w = input_shape
         else:
@@ -98,12 +106,13 @@ def finalize_detector(
     strides=(8, 16, 32),
     end_to_end=False,
     backbone_end=None,
+    loss_config=None,
 ):
     """Attach the shared head and return the assembled ``keras.Model``.
 
     The returned model carries a few attributes (``nc``, ``reg_max``,
     ``strides``, ``num_levels``, ``end_to_end``, ``head_prefix``,
-    ``backbone_end``) that the loss / post-processor,
+    ``backbone_end``, ``loss_config``) that the loss / post-processor,
     :class:`kyolo.training.YOLODetector`, :func:`load_pretrained_weights` and
     :func:`kyolo.training.freeze_backbone` read. ``head_name`` is the layer-name
     prefix for the head (kept stable across variants so a single weight mapping
@@ -111,7 +120,8 @@ def finalize_detector(
     one-to-one assignment that must be decoded NMS-free; the heads built here
     are all one-to-many, so it stays ``False``. ``backbone_end`` is the index of
     the last backbone stage (``model.<backbone_end>``), i.e. everything before
-    the neck's first upsample.
+    the neck's first upsample. ``loss_config`` overrides entries of
+    :data:`DEFAULT_LOSS_CONFIG` for this family.
     """
     data_format = resolve_data_format(data_format)
     outputs = detect_head(
@@ -125,7 +135,7 @@ def finalize_detector(
         name=head_name,
     )
     model = keras.Model(inputs=inputs, outputs=outputs, name=kname(name))
-    # metadata (plain python attrs; safe on a functional model)
+
     model.nc = nc
     model.reg_max = reg_max
     model.strides = tuple(strides)
@@ -134,12 +144,10 @@ def finalize_detector(
     model.end_to_end = end_to_end
     model.head_prefix = kname(head_name)
     model.backbone_end = backbone_end
+    model.loss_config = {**DEFAULT_LOSS_CONFIG, **(loss_config or {})}
     return model
 
 
-# --------------------------------------------------------------------------- #
-# Loading converted checkpoints (possibly with a different class count)
-# --------------------------------------------------------------------------- #
 def _class_branch_layers(model):
     """The head's classification-branch layers (``<head>.cv3.*``) that hold weights.
 
@@ -198,13 +206,10 @@ def load_pretrained_weights(model, weights, verbose=True):
         first_error = strict_error
 
     with tempfile.TemporaryDirectory() as tmpdir, warnings.catch_warnings():
-        # Keras re-walks the skipped class-branch layers through the functional
-        # model's `_operations_by_depth` mirror and warns about them; the
-        # outcome is reported below, so silence just those messages.
         warnings.filterwarnings("ignore", message="Skipping nested container")
         warnings.filterwarnings("ignore", message="A total of .* objects could not be loaded")
         h5_path = _weights_h5_path(weights, tmpdir)
-        # Pass 1: everything outside the class branch must load exactly.
+
         try:
             model.load_weights(h5_path, objects_to_skip=cls_layers)
         except ValueError as exc:
@@ -214,8 +219,7 @@ def load_pretrained_weights(model, weights, verbose=True):
                 "just a different class count). Check the variant, data layout and "
                 f"deploy setting.\n\nOriginal error:\n{first_error}"
             ) from exc
-        # Pass 2: fill in whichever class-branch layers still match the
-        # checkpoint; the rest keep their initial values.
+
         before = {l.name: [ops.convert_to_numpy(w) for w in l.weights] for l in cls_layers}
         model.load_weights(h5_path, skip_mismatch=True)
 

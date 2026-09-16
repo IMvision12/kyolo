@@ -20,7 +20,7 @@ try:
     from kyolo.training import YOLODetector, freeze_backbone
 
     _IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover - depends on environment
+except Exception as exc:
     keras = None
     _IMPORT_ERROR = exc
 
@@ -72,7 +72,7 @@ def test_detect_works_after_fit(trained_detector):
     images, _ = _synthetic_batch(np.random.default_rng(1))
     dets = detector.detect(images, conf_threshold=0.1, iou_threshold=0.5, max_detections=40)
     assert tuple(dets.shape) == (BATCH, 40, 6)
-    # the thresholds apply per call, not just on the first one
+
     dets2 = detector.detect(images, conf_threshold=0.9, max_detections=10)
     assert tuple(dets2.shape) == (BATCH, 10, 6)
     assert detector._postprocessor.conf_threshold == 0.9
@@ -82,8 +82,7 @@ def test_loss_is_reported_and_reset(trained_detector):
     """``loss`` is logged next to the component losses and its tracker resets per epoch."""
     detector, history = trained_detector
     assert set(history.history) == {"loss", "box_loss", "cls_loss", "dfl_loss"}
-    # Mean.count accumulates the sample weight (= batch size) per step; after
-    # 2 epochs of 2 steps it must hold only the last epoch: 2 steps * BATCH.
+
     assert int(ops.convert_to_numpy(detector._loss_tracker.count)) == 2 * BATCH
     result = detector.evaluate(_generator(seed=3), steps=1, return_dict=True, verbose=0)
     assert "loss" in result and np.isfinite(result["loss"])
@@ -135,12 +134,11 @@ def test_assigner_targets_carry_no_gradient():
         tensors = [torch.tensor(f, requires_grad=True) for f in feats]
         value = target_score_sum(tensors)
         if not value.requires_grad:
-            # fully detached from the inputs: no gradient path at all
             grads = [torch.zeros_like(t) for t in tensors]
         else:
             grads = torch.autograd.grad(value, tensors, allow_unused=True)
             grads = [g if g is not None else torch.zeros_like(t) for g, t in zip(grads, tensors)]
-    else:  # pragma: no cover
+    else:
         pytest.skip(f"no autodiff helper for backend {backend!r}")
 
     assert max(float(ops.max(ops.abs(g))) for g in grads) == 0.0
@@ -167,18 +165,16 @@ def test_load_pretrained_weights_with_different_nc(tmp_path):
     source.save_weights(path)
 
     target = yolov8n(nc=NC, input_shape=(SIZE, SIZE, 3), weights=path)
-    # backbone / neck / box branch transferred ...
+
     for name in ("model-0-conv", "model-12-cv1-conv", f"{target.head_prefix}-cv2-0-2"):
         got = ops.convert_to_numpy(target.get_layer(name).weights[0])
         want = ops.convert_to_numpy(source.get_layer(name).weights[0])
         np.testing.assert_allclose(got, want)
-    # ... while the class branch kept its (deterministic) init: Ultralytics'
-    # bias_init prior log(5 / nc / (640 / stride) ** 2), which is
-    # stride-dependent, so each level carries its own value.
+
     for i, stride in enumerate(target.strides):
         bias = ops.convert_to_numpy(target.get_layer(f"{target.head_prefix}-cv3-{i}-2").bias)
         np.testing.assert_allclose(bias, np.log(5.0 / NC / (640.0 / stride) ** 2), rtol=1e-5)
-    # the fresh model still trains
+
     detector = YOLODetector(target)
     detector.compile(optimizer=keras.optimizers.Adam(1e-3))
     detector.fit(_generator(), epochs=1, steps_per_epoch=1, verbose=0)
@@ -192,7 +188,7 @@ def test_load_pretrained_weights_reports_reinitialized_layers(tmp_path):
     report = load_pretrained_weights(target, path, verbose=False)
     assert report["reinitialized"]
     assert all(n.startswith(f"{target.head_prefix}-cv3-") for n in report["reinitialized"])
-    # same nc -> exact load, nothing re-initialised
+
     same = yolov8n(nc=80, input_shape=(SIZE, SIZE, 3))
     assert load_pretrained_weights(same, path, verbose=False)["reinitialized"] == []
 
@@ -214,7 +210,7 @@ def test_freeze_backbone():
     assert frozen, "no layers were frozen"
     frozen_names = {layer.name for layer in frozen}
     assert "model-0-conv" in frozen_names and "model-9-cv2-conv" in frozen_names
-    # neck and head stay trainable
+
     assert all(layer.trainable for layer in model.layers if layer.name.startswith("model-12-"))
     assert all(layer.trainable for layer in model.layers if layer.name.startswith("model-22-"))
     assert not any(layer.trainable for layer in frozen)
@@ -223,7 +219,7 @@ def test_freeze_backbone():
 def test_yolo26_detector_trains_and_detects():
     """The DFL-free head (reg_max=1) goes through fit() and detect() as well."""
     model = yolo26n(nc=NC, input_shape=(SIZE, SIZE, 3))
-    assert model.end_to_end is False  # kyolo builds the one-to-many head -> NMS decode
+    assert model.end_to_end is False
     detector = YOLODetector(model)
     detector.compile(optimizer=keras.optimizers.Adam(1e-3))
     detector.fit(_generator(), epochs=1, steps_per_epoch=1, verbose=0)
@@ -239,12 +235,11 @@ def test_head_bias_init_matches_reference(factory, reg_max):
     for i, stride in enumerate(model.strides):
         box_bias = ops.convert_to_numpy(model.get_layer(f"{model.head_prefix}-cv2-{i}-2").bias)
         cls_bias = ops.convert_to_numpy(model.get_layer(f"{model.head_prefix}-cv3-{i}-2").bias)
-        # box branch: a[-1].bias = 1.0
+
         np.testing.assert_allclose(box_bias, 1.0, rtol=1e-6)
-        # class branch: b[-1].bias = log(5 / nc / (640 / stride) ** 2)
+
         np.testing.assert_allclose(cls_bias, np.log(5.0 / NC / (640.0 / stride) ** 2), rtol=1e-5)
-    # The class prior must be far below a flat p=0.01, otherwise the initial BCE
-    # term (summed over B * A * nc mostly-negative entries) dwarfs box and DFL.
+
     first = ops.convert_to_numpy(model.get_layer(f"{model.head_prefix}-cv3-0-2").bias)
     assert float(first[0]) < -np.log(99.0)
 
@@ -265,7 +260,6 @@ def test_dfl_free_head_predicts_non_degenerate_boxes():
     images, targets = _synthetic_batch(rng)
     feats = model(ops.convert_to_tensor(images))
 
-    # decode the raw distances the same way the loss does
     flat, shapes = [], []
     for f in feats:
         h, w = f.shape[1], f.shape[2]
@@ -283,7 +277,6 @@ def test_dfl_free_head_predicts_non_degenerate_boxes():
     areas = np.maximum(b[..., 2] - b[..., 0], 0.0) * np.maximum(b[..., 3] - b[..., 1], 0.0)
     assert areas.mean() > 0.0, "reg_max=1 head predicts degenerate zero-area boxes"
 
-    # ... and the localization terms must therefore be non-zero
     out = loss.compute(feats, targets)
     assert float(ops.convert_to_numpy(out["box"])) > 0.0
 

@@ -32,10 +32,9 @@ import argparse
 
 import numpy as np
 
-# Fixed image size for the synthetic demo (small keeps it fast on CPU).
 IMAGE_SIZE = 256
 BATCH_SIZE = 2
-MAX_BOXES = 8  # M: every sample is padded to this many boxes.
+MAX_BOXES = 8
 
 
 def parse_args():
@@ -65,7 +64,7 @@ def _make_batch(rng, num_classes):
     mask = np.zeros((BATCH_SIZE, MAX_BOXES), dtype="bool")
 
     for b in range(BATCH_SIZE):
-        n = int(rng.integers(1, MAX_BOXES + 1))  # 1..MAX_BOXES real boxes
+        n = int(rng.integers(1, MAX_BOXES + 1))
         for i in range(n):
             cx, cy = rng.uniform(0.2, 0.8, size=2) * IMAGE_SIZE
             w = rng.uniform(0.05, 0.35) * IMAGE_SIZE
@@ -99,26 +98,16 @@ def build_detector(model_name, nc, weights=None, freeze_backbone=False):
       * Freezing the backbone (``trainable = False``) trains only the neck and
         detection head, which is the usual recipe for small datasets.
     """
-    import keras  # noqa: F401  (ensures a backend is importable)
-
     import kyolo.models as models
     from kyolo import training
 
-    # deploy=False keeps reparameterizable branches un-fused for training.
-    # ``weights`` is loaded by the factory; a COCO (80-class) checkpoint loads
-    # into any ``nc`` - only the head's classification branch is re-initialised.
     factory = getattr(models, model_name.replace("-", "_"))
     model = factory(nc=nc, input_shape=(IMAGE_SIZE, IMAGE_SIZE, 3), deploy=False, weights=weights)
 
-    # --- Optionally freeze the backbone -----------------------------------
-    # Layers are named ``model-<stage>-...``; ``freeze_backbone`` freezes every
-    # stage up to ``model.backbone_end`` (the last stage before the neck).
     if freeze_backbone:
         frozen = training.freeze_backbone(model)
         print(f"Froze {len(frozen)} backbone layer(s) (model.0 - model.{model.backbone_end}).")
 
-    # The detector infers nc / reg_max / strides from the model and builds the
-    # matching YOLODetectionLoss (DFL-free for YOLO26's reg_max=1).
     return training.YOLODetector(model)
 
 

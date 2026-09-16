@@ -27,7 +27,6 @@ import os
 
 import numpy as np
 
-# Repository root (this file lives in ``<repo>/examples``).
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_HERE)
 _DEFAULT_IMAGE = os.path.join(_REPO_ROOT, "assets", "samples", "bus.jpg")
@@ -64,7 +63,7 @@ def _load_image_array(path):
     """Load an RGB image as a ``(H, W, 3)`` uint8 numpy array (lazy PIL import)."""
     try:
         from PIL import Image
-    except ImportError as exc:  # pragma: no cover - depends on environment
+    except ImportError as exc:
         raise ImportError(
             "Pillow is required to read image files. It ships with kyolo, so "
             "reinstall it with `pip install pillow` (or `pip install kyolo`)."
@@ -77,7 +76,6 @@ def main():
     """Run the full inference pipeline and save a visualization."""
     args = parse_args()
 
-    # Imported here (not at module top) so ``--help`` works without a backend.
     import keras
 
     import kyolo.models as models
@@ -87,9 +85,8 @@ def main():
     from kyolo.preprocessing import YOLOPreprocessor
     from kyolo.utils import COCO_CLASS_NAMES, visualize_detections
 
-    nc = len(COCO_CLASS_NAMES)  # 80 COCO classes.
+    nc = len(COCO_CLASS_NAMES)
 
-    # ------------------------------------------------------------------ model
     print(f"Building '{args.model}' (nc={nc}, imgsz={args.imgsz}) ...")
     factory = getattr(models, args.model.replace("-", "_"))
     model = factory(
@@ -113,7 +110,6 @@ def main():
             "--weights <file>.weights.h5\n"
         )
 
-    # ------------------------------------------------------------ preprocess
     image_path = args.image or _DEFAULT_IMAGE
     preprocessor = YOLOPreprocessor(image_size=args.imgsz, normalize=True, letterbox=True)
 
@@ -125,13 +121,9 @@ def main():
         image = np.random.randint(0, 256, size=(480, 640, 3), dtype="uint8")
     batch = preprocessor(image)
 
-    # ----------------------------------------------------------- forward pass
     print("Running forward pass ...")
-    raw_feats = model(batch["images"])  # list of 3 tensors [P3, P4, P5]
+    raw_feats = model(batch["images"])
 
-    # ------------------------------------------------------------ postprocess
-    # reg_max / strides come from the model so the same code decodes every
-    # family (YOLO26 is DFL-free with reg_max=1).
     postprocessor = YOLOPostprocessor(
         nc=nc,
         reg_max=model.reg_max,
@@ -140,19 +132,14 @@ def main():
         iou_threshold=args.iou,
         max_detections=300,
     )
-    detections = postprocessor(raw_feats)  # (B, max_detections, 6)
+    detections = postprocessor(raw_feats)
 
-    # Detections come out in the letterboxed input space, so undo the
-    # preprocessing with the ratio/pad it reported. Scores and class ids ride
-    # along untouched, and zero-padded rows stay zero.
     detections = scale_boxes(detections, batch["ratio"], batch["pad"], orig_shape=image.shape[:2])
 
     det0 = keras.ops.convert_to_numpy(detections)[0]
     num_kept = int((det0[:, 4] > 0).sum())
     print(f"Kept {num_kept} detection(s) above conf={args.conf}.")
 
-    # -------------------------------------------------------------- visualize
-    # boxes are back in original-image pixels, so draw on the user's photo
     os.makedirs(os.path.dirname(_DEFAULT_OUTPUT), exist_ok=True)
     visualize_detections(
         image,

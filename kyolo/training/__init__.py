@@ -1,6 +1,7 @@
 """Training utilities."""
 
+from .callbacks import ProgressiveLossSchedule
 from .detector import YOLODetector
 from .freeze import freeze_backbone
 
-__all__ = ["YOLODetector", "freeze_backbone"]
+__all__ = ["YOLODetector", "freeze_backbone", "ProgressiveLossSchedule"]

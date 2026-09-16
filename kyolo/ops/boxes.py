@@ -59,7 +59,6 @@ def _align_pair(values, rank, name):
     values = ops.convert_to_tensor(values, dtype="float32")
     ndim = len(values.shape)
     if ndim == 1:
-        # shared by every box: (2,) -> (1, ..., 1, 2)
         return ops.reshape(values, (1,) * (rank - 1) + (2,))
     if ndim != 2:
         raise ValueError(f"`{name}` must have shape (2,) or (B, 2); got {tuple(values.shape)}.")
@@ -68,7 +67,7 @@ def _align_pair(values, rank, name):
             f"a per-image `{name}` of shape {tuple(values.shape)} needs batched boxes "
             f"shaped (B, N, 4+), but `boxes` has rank {rank}."
         )
-    # one value per image: (B, 2) -> (B, 1, ..., 1, 2)
+
     return ops.reshape(values, (-1,) + (1,) * (rank - 2) + (2,))
 
 
@@ -88,7 +87,7 @@ def clip_boxes(boxes, shape):
     hw = _align_pair(shape, len(xyxy.shape), "shape")
     height, width = hw[..., :1], hw[..., 1:]
     upper = ops.concatenate([width, height, width, height], axis=-1)
-    # maximum/minimum instead of ops.clip: a *tensor* bound is not portable there
+
     xyxy = ops.minimum(ops.maximum(xyxy, 0.0), upper)
     return xyxy if extra is None else ops.concatenate([xyxy, extra], axis=-1)
 
@@ -129,8 +128,7 @@ def scale_boxes(boxes, ratio, pad, orig_shape=None, clip=True):
     rank = len(xyxy.shape)
     gain = _align_pair(ratio, rank, "ratio")
     offset = _align_pair(pad, rank, "pad")
-    # the x and y factors are kept separate so a non-aspect-preserving resize
-    # (scale_fill) inverts correctly too
+
     xyxy = (xyxy - ops.concatenate([offset, offset], axis=-1)) / ops.concatenate(
         [gain, gain], axis=-1
     )
@@ -162,8 +160,6 @@ def bbox_iou(box1, box2, xywh=False, giou=False, diou=False, ciou=False, eps=1e-
     b1x1, b1y1, b1x2, b1y2 = box1[..., 0], box1[..., 1], box1[..., 2], box1[..., 3]
     b2x1, b2y1, b2x2, b2y2 = box2[..., 0], box2[..., 1], box2[..., 2], box2[..., 3]
 
-    # Lower-bound-only clamp via maximum: ops.clip with a None bound is not
-    # portable across backends (fails on TensorFlow and PyTorch).
     inter_w = ops.maximum(ops.minimum(b1x2, b2x2) - ops.maximum(b1x1, b2x1), 0.0)
     inter_h = ops.maximum(ops.minimum(b1y2, b2y2) - ops.maximum(b1y1, b2y1), 0.0)
     inter = inter_w * inter_h
@@ -195,7 +191,6 @@ def bbox_iou(box1, box2, xywh=False, giou=False, diou=False, ciou=False, eps=1e-
         alpha = ops.stop_gradient(alpha)
         return iou - (rho2 / c2 + v * alpha)
 
-    # GIoU
     c_area = cw * ch + eps
     return iou - (c_area - union) / c_area
 
@@ -209,16 +204,16 @@ def pairwise_iou(boxes1, boxes2, eps=1e-7):
     Returns:
         ``(N, M)`` IoU matrix.
     """
-    area1 = box_area(boxes1)  # (N,)
-    area2 = box_area(boxes2)  # (M,)
-    b1 = ops.expand_dims(boxes1, 1)  # (N,1,4)
-    b2 = ops.expand_dims(boxes2, 0)  # (1,M,4)
+    area1 = box_area(boxes1)
+    area2 = box_area(boxes2)
+    b1 = ops.expand_dims(boxes1, 1)
+    b2 = ops.expand_dims(boxes2, 0)
     inter_w = ops.maximum(
         ops.minimum(b1[..., 2], b2[..., 2]) - ops.maximum(b1[..., 0], b2[..., 0]), 0.0
     )
     inter_h = ops.maximum(
         ops.minimum(b1[..., 3], b2[..., 3]) - ops.maximum(b1[..., 1], b2[..., 1]), 0.0
     )
-    inter = inter_w * inter_h  # (N,M)
+    inter = inter_w * inter_h
     union = ops.expand_dims(area1, 1) + ops.expand_dims(area2, 0) - inter + eps
     return inter / union

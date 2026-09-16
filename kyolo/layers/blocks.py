@@ -158,8 +158,6 @@ def c3k2(
     cur = y1
     for i in range(n):
         if attn:
-            # Bottleneck followed by a PSABlock (num_heads = c_ // 64). Lazy
-            # import avoids the blocks <-> attention circular dependency.
             from .attention import psa_block
 
             cur = bottleneck(
@@ -191,9 +189,6 @@ def c3k2(
                 name=f"{name}.m.{i}",
             )
         else:
-            # Ultralytics C3k2 uses the default Bottleneck (e=0.5, hidden = c_/2),
-            # unlike C2f which pins e=1.0. Matching this is required for the
-            # official YOLO11 weights to load.
             cur = bottleneck(
                 cur,
                 c_,

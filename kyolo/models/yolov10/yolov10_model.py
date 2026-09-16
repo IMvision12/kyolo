@@ -18,7 +18,6 @@ from .config import YOLOV10_CIB_SLOTS, YOLOV10_CONFIG
 __all__ = ["YOLOV10_CONFIG", "build_yolov10", "YOLOv10"]
 
 
-# variant: (depth, width, max_channels)
 def build_yolov10(
     variant="n",
     nc=80,
@@ -32,8 +31,6 @@ def build_yolov10(
     data_format = resolve_data_format(data_format)
     ax = concat_axis(data_format)
 
-    # Per-scale C2fCIB placement + large-kernel (RepVGGDW) flag, from the
-    # official yolov10 yamls. Every C2fCIB in those yamls uses shortcut=True.
     cib_slots = YOLOV10_CIB_SLOTS[variant]
     cib_lk = variant in ("n", "s")
 
@@ -60,7 +57,6 @@ def build_yolov10(
 
     inp = image_input(input_shape, data_format)
 
-    # --- backbone ---
     x = conv_bn(inp, ch(64), 3, 2, data_format=data_format, name="model.0")
     x = conv_bn(x, ch(128), 3, 2, data_format=data_format, name="model.1")
     x = c2f(x, ch(128), nd(3), shortcut=True, data_format=data_format, name="model.2")
@@ -76,7 +72,6 @@ def build_yolov10(
     x = psa(x, ch(1024), data_format=data_format, name="model.10")
     p5 = x
 
-    # --- neck ---
     t = cat([up(p5, "up0"), p4], "cat0")
     p4n = stage(t, ch(512), nd(3), 13, False)
     t = cat([up(p4n, "up1"), p3], "cat1")
@@ -94,8 +89,8 @@ def build_yolov10(
         cls_dw=True,
         data_format=data_format,
         name=f"yolov10{variant}",
-        head_name="model.23",  # matches the Ultralytics YOLOv10 Detect module index
-        backbone_end=10,  # model.0 - model.10 (PSA)
+        head_name="model.23",
+        backbone_end=10,
     )
 
 

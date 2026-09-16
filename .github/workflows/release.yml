@@ -1,8 +1,5 @@
 name: Release
 
-# Auto-release: any push to `main` that changes kyolo/version.py cuts a new
-# GitHub release (tag v<version>) and publishes the wheel + sdist to PyPI.
-# To ship a new version, bump __version__ in kyolo/version.py and merge to main.
 on:
   push:
     branches:
@@ -35,7 +32,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RELEASE_TAG="v${{ steps.get_version.outputs.version }}"
-          # Only create the release/tag if it does not already exist.
           if ! gh release view "$RELEASE_TAG" &>/dev/null; then
             gh release create "$RELEASE_TAG" \
               --title "Release $RELEASE_TAG" \
@@ -53,7 +49,6 @@ jobs:
     name: Build and upload to PyPI
     runs-on: ubuntu-latest
     permissions:
-      # Required for PyPI Trusted Publishing (OIDC) - no API token needed.
       id-token: write
     steps:
       - uses: actions/checkout@v4

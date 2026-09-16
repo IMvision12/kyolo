@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import keras
 
-from ..losses.detection_loss import YOLODetectionLoss
+from ..losses import E2EDetectionLoss, YOLODetectionLoss
 from ..postprocessing.postprocessor import YOLOPostprocessor
 
 __all__ = ["YOLODetector"]
@@ -38,30 +38,16 @@ class YOLODetector(keras.Model):
         self.nc = nc if nc is not None else getattr(model, "nc", 80)
         self.reg_max = reg_max if reg_max is not None else getattr(model, "reg_max", 16)
         self.strides = strides if strides is not None else getattr(model, "strides", (8, 16, 32))
-        # ``end_to_end`` selects NMS-free top-k decoding in ``detect()``. It
-        # follows ``model.end_to_end``, which is False for every kyolo model
-        # (the built heads are one-to-many and need NMS).
+
         self.end_to_end = (
             end_to_end if end_to_end is not None else getattr(model, "end_to_end", False)
         )
-        self.loss_fn = loss or YOLODetectionLoss(
-            nc=self.nc,
-            reg_max=self.reg_max,
-            strides=self.strides,
-            data_format=getattr(model, "data_format", None),
-        )
+        self.loss_fn = loss or self._default_loss(model)
 
-        # Keras tracks these Mean metrics automatically, so they show up in
-        # ``self.metrics`` next to the compiled ``loss`` tracker and are reset
-        # every epoch with it.
         self._box = keras.metrics.Mean(name="box_loss")
         self._cls = keras.metrics.Mean(name="cls_loss")
-        self._dfl = keras.metrics.Mean(name="dfl_loss")
+        self._dist = keras.metrics.Mean(name=f"{self.loss_fn.dist_name}_loss")
 
-        # Built up front: sub-layers cannot be added to a model once it has been
-        # built (i.e. after the first train/predict step), so creating this
-        # lazily inside ``detect()`` would fail after ``fit()``. The thresholds
-        # are plain attributes that ``detect()`` overrides per call.
         self._postprocessor = YOLOPostprocessor(
             nc=self.nc,
             reg_max=self.reg_max,
@@ -70,7 +56,26 @@ class YOLODetector(keras.Model):
             data_format=getattr(model, "data_format", None),
         )
 
-    # ------------------------------------------------------------------ #
+    def _default_loss(self, model):
+        """Build the criterion the wrapped model asks for.
+
+        Loss settings that follow from the architecture (the gains, the TAL
+        top-k, and for end-to-end models the two branches' assignment) travel
+        with the model as ``model.loss_config``, set by ``finalize_detector``.
+        Reading them here is what makes ``YOLODetector(yolo26n())`` come out
+        with YOLO26's criterion without the caller knowing any of the numbers.
+        """
+        config = dict(getattr(model, "loss_config", None) or {})
+        config.update(
+            nc=self.nc,
+            reg_max=self.reg_max,
+            strides=self.strides,
+            data_format=getattr(model, "data_format", None),
+        )
+        if self.end_to_end:
+            return E2EDetectionLoss(**config)
+        return YOLODetectionLoss(**config)
+
     def _images(self, x):
         if isinstance(x, dict):
             return x["images"]
@@ -92,10 +97,9 @@ class YOLODetector(keras.Model):
         losses = self.loss_fn(y_pred, targets)
         self._box.update_state(losses["box"])
         self._cls.update_state(losses["cls"])
-        self._dfl.update_state(losses["dfl"])
+        self._dist.update_state(losses["dist"])
         return losses["loss"]
 
-    # ------------------------------------------------------------------ #
     def detect(self, images, conf_threshold=0.25, iou_threshold=0.7, max_detections=300):
         """Run the model + post-processing and return ``(B, max_det, 6)`` detections.
 
@@ -111,7 +115,7 @@ class YOLODetector(keras.Model):
         return pp(feats)
 
     def get_config(self):
-        # The wrapped body is a functional/subclassed model; serialise it.
+
         return {
             "model": keras.saving.serialize_keras_object(self.body),
             "nc": self.nc,

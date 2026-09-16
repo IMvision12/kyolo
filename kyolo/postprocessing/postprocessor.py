@@ -57,14 +57,13 @@ class YOLOPostprocessor(keras.layers.Layer):
         self.pre_nms_topk = pre_nms_topk
         self.end_to_end = end_to_end
         self.data_format = resolve_data_format(data_format)
-        # DFL is stateless, so the post-processor carries no variables and can
-        # be created lazily (e.g. inside an already-built YOLODetector).
+
         self.dfl = DFL(reg_max) if reg_max > 1 else None
 
     def call(self, feats):
         boxes_xywh, scores = decode_raw_predictions(
             feats, self.strides, self.reg_max, self.nc, self.dfl, self.data_format
-        )  # (B,A,4) pixels, (B,A,nc)
+        )
         boxes_xyxy = xywh2xyxy(boxes_xywh)
 
         if self.end_to_end:
@@ -82,8 +81,7 @@ class YOLOPostprocessor(keras.layers.Layer):
         )
 
     def compute_output_shape(self, input_shape):
-        # Declared explicitly so symbolic (functional-model) use never has to
-        # trace the data-dependent NMS loop inside ``call``.
+
         batch = input_shape[0][0] if isinstance(input_shape[0], (list, tuple)) else input_shape[0]
         return (batch, self.max_detections, 6)
 

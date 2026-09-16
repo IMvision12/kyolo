@@ -11,7 +11,6 @@ from .config import YOLOV8_CONFIG
 __all__ = ["YOLOV8_CONFIG", "build_yolov8", "YOLOv8"]
 
 
-# variant: (depth, width, max_channels)
 def build_yolov8(
     variant="n",
     nc=80,
@@ -41,7 +40,6 @@ def build_yolov8(
 
     inp = image_input(input_shape, data_format)
 
-    # --- backbone ---
     x = conv_bn(inp, ch(64), 3, 2, data_format=data_format, name="model.0")
     x = conv_bn(x, ch(128), 3, 2, data_format=data_format, name="model.1")
     x = c2f(x, ch(128), nd(3), shortcut=True, data_format=data_format, name="model.2")
@@ -56,7 +54,6 @@ def build_yolov8(
     x = sppf(x, ch(1024), 5, data_format=data_format, name="model.9")
     p5 = x
 
-    # --- neck (PAN-FPN) ---
     t = cat([up(p5, "up0"), p4], "cat0")
     p4n = c2f(t, ch(512), nd(3), shortcut=False, data_format=data_format, name="model.12")
     t = cat([up(p4n, "up1"), p3], "cat1")
@@ -73,8 +70,8 @@ def build_yolov8(
         reg_max=reg_max,
         data_format=data_format,
         name=f"yolov8{variant}",
-        head_name="model.22",  # matches the Ultralytics YOLOv8 Detect module index
-        backbone_end=9,  # model.0 - model.9 (SPPF)
+        head_name="model.22",
+        backbone_end=9,
     )
 
 

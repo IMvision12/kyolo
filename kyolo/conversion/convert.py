@@ -78,9 +78,6 @@ __all__ = [
 ]
 
 
-# Maps a Keras variable leaf name -> the corresponding PyTorch parameter suffix.
-# ``scale`` is kyolo's leaf for the YOLO12 A2C2f residual gamma (a bare Torch
-# ``nn.Parameter`` named ``gamma``); no other kyolo layer emits a ``scale`` leaf.
 _SUFFIX_MAP = {
     "kernel": "weight",
     "gamma": "weight",
@@ -91,11 +88,7 @@ _SUFFIX_MAP = {
     "scale": "gamma",
 }
 
-# Torch tensors that kyolo intentionally does not carry as model weights, so they
-# must be dropped before an order-based (positional) transfer or the counts will
-# not line up. The anchor-free Ultralytics heads store the fixed DFL projection
-# ``[0, 1, ..., reg_max-1]`` as a frozen ``...dfl.conv.weight`` conv; kyolo folds
-# that integral into post-processing instead, so it has no matching variable.
+
 _NON_TRANSFERABLE_SUFFIXES = ("dfl.conv.weight",)
 
 
@@ -123,14 +116,11 @@ def _unclaimed_torch_keys(torch_state, claimed) -> List[str]:
     ]
 
 
-# --------------------------------------------------------------------------- #
-# Loading a torch checkpoint into plain numpy arrays
-# --------------------------------------------------------------------------- #
 def _require_torch():
     """Import torch lazily, raising a friendly error if it is unavailable."""
     try:
-        import torch  # noqa: F401
-    except ImportError as exc:  # pragma: no cover - trivial
+        import torch
+    except ImportError as exc:
         raise ImportError(
             "PyTorch is required to read '.pt' checkpoints but is not installed. "
             "Install it with `pip install torch` or `pip install kyolo[conversion]`. "
@@ -153,15 +143,14 @@ def _to_state_dict(obj, torch) -> Dict[str, "object"]:
     Ultralytics-style checkpoint ``{"model": nn.Module, "ema": ..., ...}``; and
     the generic ``{"state_dict": ...}`` container.
     """
-    # A live nn.Module (Ultralytics stores the model object itself).
+
     if not isinstance(obj, dict) and hasattr(obj, "state_dict"):
         try:
             return obj.float().state_dict()
-        except Exception:  # pragma: no cover - some modules dislike .float()
+        except Exception:
             return obj.state_dict()
 
     if isinstance(obj, dict):
-        # Ultralytics checkpoint: prefer the trained model, fall back to EMA.
         for key in ("model", "ema"):
             if obj.get(key) is not None:
                 return _to_state_dict(obj[key], torch)
@@ -192,8 +181,6 @@ def load_torch_state_dict(path: str) -> "OrderedDict[str, np.ndarray]":
     """
     torch = _require_torch()
 
-    # weights_only=False is required to unpickle Ultralytics' nn.Module
-    # checkpoints; older torch releases lack the argument entirely.
     try:
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
     except TypeError:
@@ -213,9 +200,6 @@ def load_torch_state_dict(path: str) -> "OrderedDict[str, np.ndarray]":
     return out
 
 
-# --------------------------------------------------------------------------- #
-# Shared helpers
-# --------------------------------------------------------------------------- #
 def _leaf(path: str) -> str:
     """Return the trailing variable name of a Keras ``variable.path``."""
     return path.rsplit("/", 1)[-1]
@@ -247,7 +231,6 @@ def _var_kind(var) -> str:
 def _transpose_for_kind(arr: np.ndarray, kind: str) -> np.ndarray:
     """Apply the PyTorch->Keras axis permutation implied by ``kind``."""
     if kind == "conv_kernel":
-        # OIHW -> HWIO. Works for plain, grouped and depth-wise convolutions.
         return np.transpose(arr, (2, 3, 1, 0))
     if kind == "dense_kernel":
         return np.transpose(arr, (1, 0))
@@ -259,9 +242,6 @@ def _assign(var, arr: np.ndarray) -> None:
     var.assign(arr.astype(var.dtype))
 
 
-# --------------------------------------------------------------------------- #
-# Order-based transfer (positional; does not fit the shipped families)
-# --------------------------------------------------------------------------- #
 def transfer_by_order(
     keras_model,
     torch_state: "Dict[str, np.ndarray]",
@@ -349,9 +329,6 @@ def transfer_by_order(
     }
 
 
-# --------------------------------------------------------------------------- #
-# Name-based transfer (best-effort)
-# --------------------------------------------------------------------------- #
 def transfer_torch_to_keras(
     keras_model,
     torch_state: "Dict[str, np.ndarray]",
@@ -407,8 +384,7 @@ def transfer_torch_to_keras(
             layer_path, leaf = path.rsplit("/", 1)
         else:
             layer_path, leaf = path, _leaf(path)
-        # Keras layer names are torch-safe (dots -> hyphens, see
-        # kyolo.layers.knames); undo that to recover the dotted PyTorch key.
+
         layer_path = layer_path.replace("-", ".")
         suffix = _SUFFIX_MAP.get(leaf, leaf)
         torch_key = f"{layer_path}.{suffix}"
@@ -461,9 +437,6 @@ def transfer_torch_to_keras(
     }
 
 
-# --------------------------------------------------------------------------- #
-# High-level driver
-# --------------------------------------------------------------------------- #
 def _sample(items, render, limit=10):
     """Render up to ``limit`` items as indented lines, noting how many remain."""
     lines = [f"    {render(item)}" for item in items[:limit]]
@@ -580,8 +553,6 @@ def convert_weights(
     else:
         raise ValueError(f"Unknown method {method!r}; expected 'order' or 'name'.")
 
-    # Gate the save: a checkpoint full of random initialisation loads without
-    # complaint later, so this is the last place the mismatch can be caught.
     problem = _incomplete_transfer_error(report, method)
     if problem is not None:
         if not allow_partial:

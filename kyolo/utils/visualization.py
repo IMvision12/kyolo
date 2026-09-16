@@ -22,7 +22,6 @@ __all__ = [
 ]
 
 
-# A small, high-contrast palette cycled through for successive boxes.
 _COLORS = [
     "red",
     "blue",
@@ -46,7 +45,7 @@ def _import_matplotlib():
     try:
         import matplotlib.patches as patches
         import matplotlib.pyplot as plt
-    except ImportError as exc:  # pragma: no cover - depends on environment
+    except ImportError as exc:
         raise ImportError(
             "matplotlib is required for visualization. It ships with kyolo, so "
             "reinstall it with `pip install matplotlib` (or `pip install kyolo`)."
@@ -60,7 +59,7 @@ def _to_numpy(x):
         return x
     if x is None:
         return None
-    # ``convert_to_numpy`` handles tensors from any Keras backend.
+
     try:
         return keras.ops.convert_to_numpy(x)
     except (TypeError, ValueError):
@@ -76,16 +75,14 @@ def _prepare_image(image):
     img = _to_numpy(image)
     img = np.asarray(img)
 
-    # Channels-first (3, H, W) -> channels-last (H, W, 3).
     if img.ndim == 3 and img.shape[0] == 3 and img.shape[-1] != 3:
         img = np.transpose(img, (1, 2, 0))
-    # Grayscale (H, W) -> (H, W, 3).
+
     elif img.ndim == 2:
         img = np.repeat(img[..., None], 3, axis=-1)
 
     img = img.astype("float32")
 
-    # Auto-detect [0, 255] range and normalize to [0, 1] for display.
     if img.size > 0 and float(img.max()) > 1.0:
         img = img / 255.0
 

@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import pytest
 
-# Skip the entire module if keras (or a backend, or kyolo.models) is unavailable.
 try:
     import keras
 
     import kyolo.models as models
 
     _IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover - depends on environment
+except Exception as exc:
     keras = None
     models = None
     _IMPORT_ERROR = exc
@@ -26,15 +25,14 @@ pytestmark = pytest.mark.skipif(
     reason=f"keras backend / kyolo.models unavailable: {_IMPORT_ERROR}",
 )
 
-# TensorFlow only supports channels_first (NCHW) conv2d on a GPU; on the CPU
-# runners used in CI these builds raise, so skip channels_first tests there.
+
 _IS_TENSORFLOW = keras is not None and keras.backend.backend() == "tensorflow"
 skip_channels_first_on_tf = pytest.mark.skipif(
     _IS_TENSORFLOW,
     reason="channels_first conv2d requires a GPU on the TensorFlow backend",
 )
 
-# A representative small variant factory from every family.
+
 MODEL_NAMES = [
     "yolov5n",
     "yolov8n",
@@ -49,10 +47,9 @@ NC = 80
 REG_MAX = 16
 INPUT_SIZE = 256
 STRIDES = (8, 16, 32)
-EXPECTED_CHANNELS = 4 * REG_MAX + NC  # 4 * 16 + 80 == 144
+EXPECTED_CHANNELS = 4 * REG_MAX + NC
 
-# YOLO26 is natively DFL-free (reg_max == 1), so its head regresses the four box
-# distances directly: 4 * 1 + 80 == 84 channels instead of the usual 144.
+
 REG_MAX_BY_MODEL = {"yolo26n": 1}
 
 

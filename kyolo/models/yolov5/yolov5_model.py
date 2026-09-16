@@ -16,7 +16,6 @@ from .config import YOLOV5_CONFIG
 __all__ = ["YOLOV5_CONFIG", "build_yolov5", "YOLOv5"]
 
 
-# variant: (depth, width)
 def build_yolov5(
     variant="n",
     nc=80,
@@ -46,7 +45,6 @@ def build_yolov5(
 
     inp = image_input(input_shape, data_format)
 
-    # --- backbone ---
     x = conv_bn(inp, ch(64), 6, 2, padding=2, data_format=data_format, name="model.0")
     x = conv_bn(x, ch(128), 3, 2, data_format=data_format, name="model.1")
     x = c3(x, ch(128), nd(3), shortcut=True, data_format=data_format, name="model.2")
@@ -61,7 +59,6 @@ def build_yolov5(
     x = sppf(x, ch(1024), 5, data_format=data_format, name="model.9")
     p5 = x
 
-    # --- neck (FPN top-down + PAN bottom-up) ---
     p5r = conv_bn(p5, ch(512), 1, 1, data_format=data_format, name="model.10")
     t = cat([up(p5r, "up0"), p4], "cat0")
     p4t = c3(t, ch(512), nd(3), shortcut=False, data_format=data_format, name="model.13")
@@ -80,8 +77,8 @@ def build_yolov5(
         reg_max=reg_max,
         data_format=data_format,
         name=f"yolov5{variant}",
-        head_name="model.24",  # matches the Ultralytics yolov5u Detect module index
-        backbone_end=9,  # model.0 - model.9 (SPPF)
+        head_name="model.24",
+        backbone_end=9,
     )
 
 

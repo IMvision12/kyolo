@@ -36,14 +36,14 @@ class DFL(keras.layers.Layer):
     def call(self, x):
         b = ops.shape(x)[0]
         a = ops.shape(x)[2]
-        # (b, 4, reg_max, a)
+
         x = ops.reshape(x, (b, 4, self.reg_max, a))
-        # softmax over the reg_max bins
+
         x = ops.softmax(x, axis=2)
-        # expectation: sum(prob * bin_centre) over the bins
+
         bins = ops.cast(ops.arange(self.reg_max), x.dtype)
         bins = ops.reshape(bins, (1, 1, self.reg_max, 1))
-        return ops.sum(x * bins, axis=2)  # (b, 4, a)
+        return ops.sum(x * bins, axis=2)
 
     def compute_output_shape(self, input_shape):
         return (input_shape[0], 4, input_shape[2])

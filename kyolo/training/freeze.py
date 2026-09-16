@@ -6,8 +6,7 @@ import re
 
 __all__ = ["freeze_backbone"]
 
-# kyolo layer names are torch-safe: ``model-<stage>-<sub>...`` (see
-# kyolo.layers.knames), so the stage index is the first hyphen-delimited field.
+
 _STAGE_RE = re.compile(r"^model-(\d+)(?:-|$)")
 
 
