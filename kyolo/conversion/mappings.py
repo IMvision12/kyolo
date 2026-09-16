@@ -17,8 +17,9 @@ Where a mapping *is* needed it is almost always the detection head, whose module
 layout differs between YOLO generations and between the Ultralytics and
 WongKinYiu code bases. Treat every entry below as a starting point to be
 verified against a real checkpoint -- not as a guarantee. When a mapping proves
-insufficient, prefer the order-based transfer (``method="order"``), which does
-not depend on names at all.
+insufficient, extend it: the order-based transfer (``method="order"``) is not a
+usable fallback here, because kyolo's CSP blocks are built in a different order
+than the reference registers them (see :mod:`kyolo.conversion.convert`).
 """
 
 from __future__ import annotations

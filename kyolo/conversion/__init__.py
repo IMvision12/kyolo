@@ -11,8 +11,10 @@ yourself into Keras ``.weights.h5`` format. Run the per-model converter, e.g.::
 Public API
 ----------
 * :func:`load_torch_state_dict` -- read a ``.pt`` into ordered numpy arrays.
-* :func:`transfer_by_order` -- robust positional transfer (recommended).
-* :func:`transfer_torch_to_keras` -- best-effort name-based transfer.
+* :func:`transfer_torch_to_keras` -- name-based transfer (the default; use this).
+* :func:`transfer_by_order` -- positional transfer. Does not fit the families
+  kyolo ships, whose CSP blocks are built in a different order than the
+  reference registers them; see :mod:`kyolo.conversion.convert`.
 * :func:`convert_weights` -- high-level: load, transfer, save.
 
 See :mod:`kyolo.conversion.convert` for details and the important caveat that a

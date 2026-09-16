@@ -8,22 +8,32 @@ NumPy arrays.
 
 Two transfer strategies are provided:
 
-``transfer_by_order`` (method ``"order"``, RECOMMENDED)
-    Walks the Keras variables and the Torch ``state_dict`` **in build order**
-    and zips them together positionally. Because the :mod:`kyolo` builders
-    create their sub-layers in the exact same order the PyTorch modules are
-    registered, this lines up without relying on fragile string matching. It
-    only needs the *counts* and *shapes* to agree, which it validates loudly.
-
-``transfer_torch_to_keras`` (method ``"name"``, best-effort)
+``transfer_torch_to_keras`` (method ``"name"``, the default -- use this)
     Derives a candidate Torch key for every Keras variable from its ``path``
     (e.g. ``model-0-conv/kernel`` -> ``model.0.conv.weight``) and looks it up
     directly. Keras layer names are hyphenated for torch-backend safety (see
     :mod:`kyolo.layers.knames`), so the separators are mapped back to ``.``.
-    This is convenient when the two graphs are structurally identical, but the
-    derived names can drift from a specific checkpoint's layout (the detection
-    head in particular), so it may need per-model mapping tuning. Prefer
-    ``"order"`` unless you have a reason not to.
+    The :mod:`kyolo` layer names mirror the reference module paths, so matching
+    is exact for the official checkpoints. Individual checkpoints (the detection
+    head in particular) can still diverge and need a per-model ``name_mapping``.
+
+``transfer_by_order`` (method ``"order"``, rarely usable)
+    Walks the Keras variables and the Torch ``state_dict`` positionally and zips
+    them together, needing only the counts and post-transpose shapes to agree.
+
+    **This does not work for any of the families kyolo ships**, because the two
+    build orders disagree inside every CSP block: kyolo emits ``cv1`` ->
+    ``m.{i}`` -> ``cv2`` while the reference ``C2f.__init__`` registers ``cv1``
+    -> ``cv2`` -> ``m.{i}``. Confirmed on a real ``yolov8n`` at ``model.2``::
+
+        kyolo:       cv1.conv, cv1.bn, m.0.cv1, m.0.cv2, cv2.conv, cv2.bn
+        ultralytics: cv1.conv, cv1.bn, cv2.conv, cv2.bn, m.0.cv1, m.0.cv2
+
+    Same pattern in ``c3`` and ``c3k2``, so it affects v5, v8, v10, 11, 12 and
+    26. It normally fails loudly on a shape mismatch, but a bottleneck's
+    ``cv1``/``cv2`` have identical shapes at equal channel counts, so a silent
+    swap is possible. Reach for it only when you have checked that the two
+    orders line up for your specific checkpoint.
 
 Layout conventions handled here
 -------------------------------
@@ -250,7 +260,7 @@ def _assign(var, arr: np.ndarray) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Order-based transfer (robust, recommended)
+# Order-based transfer (positional; does not fit the shipped families)
 # --------------------------------------------------------------------------- #
 def transfer_by_order(
     keras_model,
@@ -266,6 +276,14 @@ def transfer_by_order(
     PyTorch ``state_dict``. The correct transpose is chosen from each Keras
     variable's kind; only element counts and post-transpose shapes need to line
     up, both of which are validated.
+
+    .. warning::
+       *Within* a layer the grouping matches, but the layer order does not for
+       any family kyolo ships: the CSP builders emit ``cv1`` -> ``m.{i}`` ->
+       ``cv2`` where the reference registers ``cv1`` -> ``cv2`` -> ``m.{i}``.
+       Use :func:`transfer_torch_to_keras` (``method="name"``) instead unless you
+       have verified the orders agree for your checkpoint. See the module
+       docstring.
 
     Args:
         keras_model: The target Keras model (already built).
@@ -352,10 +370,12 @@ def transfer_torch_to_keras(
     resulting key exists in ``torch_state`` the value is transposed to the Keras
     layout and assigned; otherwise the variable is recorded as a miss.
 
-    This path is best-effort. The dotted :mod:`kyolo` naming mirrors the
-    reference modules, but individual checkpoints (especially detection heads)
-    can diverge and need a per-model ``name_mapping``. When in doubt use
-    :func:`transfer_by_order`.
+    This is the recommended path. The dotted :mod:`kyolo` naming mirrors the
+    reference modules, so matching is exact for the official checkpoints, but
+    individual checkpoints (especially detection heads) can diverge and need a
+    per-model ``name_mapping``. :func:`transfer_by_order` is *not* the fallback
+    to reach for: the build orders disagree inside every CSP block (see the
+    module docstring).
 
     Args:
         keras_model: The target Keras model (already built).
@@ -399,8 +419,8 @@ def transfer_torch_to_keras(
             if strict:
                 raise KeyError(
                     f"No Torch parameter matched Keras variable '{path}' "
-                    f"(tried '{torch_key}'). Adjust the name_mapping or use "
-                    "method='order'."
+                    f"(tried '{torch_key}'). Adjust the name_mapping to suit "
+                    "the checkpoint's layout."
                 )
             misses.append((path, torch_key, "missing"))
             continue

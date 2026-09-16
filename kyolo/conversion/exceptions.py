@@ -22,7 +22,8 @@ class WeightMappingError(WeightConversionError):
         self.torch_name = torch_name
         super().__init__(
             f"No PyTorch parameter matched Keras variable '{keras_name}' "
-            f"(tried '{torch_name}'). Adjust the name mapping or use method='order'."
+            f"(tried '{torch_name}'). Adjust the name_mapping to suit the "
+            "checkpoint's layout."
         )
 
 

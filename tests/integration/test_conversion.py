@@ -74,6 +74,29 @@ def _convert(model, state, directory, **kwargs):
     return report, os.path.exists(output)
 
 
+def test_csp_build_order_differs_from_reference_registration(model):
+    """Pins the claim the module docstring makes about ``method="order"``.
+
+    kyolo's CSP builders emit ``cv1`` -> ``m.{i}`` -> ``cv2`` while the reference
+    ``C2f.__init__`` registers ``cv1`` -> ``cv2`` -> ``m.{i}``, which is why the
+    positional transfer cannot line up on any family kyolo ships. If a refactor
+    ever changes the build order, this fails and the docs need revisiting.
+    """
+    layers = []
+    for var in model.weights:
+        layer = var.path.rsplit("/", 1)[0]
+        if layer.startswith("model-2-") and layer not in layers:
+            layers.append(layer[len("model-2-") :])
+
+    assert layers, "expected a C2f block at model.2"
+    bottleneck = next(i for i, name in enumerate(layers) if name.startswith("m-0-"))
+    cv2 = next(i for i, name in enumerate(layers) if name.startswith("cv2-"))
+    assert bottleneck < cv2, (
+        "kyolo now emits cv2 before the bottleneck, matching the reference order; "
+        f"the conversion docs claim otherwise. Order was: {layers}"
+    )
+
+
 def test_complete_conversion_saves(model, tmp_path):
     """The happy path: every variable filled, every tensor read, file written."""
     report, saved = _convert(model, _complete_state(model), tmp_path)
