@@ -40,6 +40,13 @@ def _np(x):
     return ops.convert_to_numpy(x)
 
 
+requires_tensorflow = pytest.mark.skipif(
+    keras is None or keras.backend.backend() != "tensorflow",
+    reason="dynamic (None) shapes and SavedModel export are TensorFlow-specific; "
+    "JAX and PyTorch always see static shapes",
+)
+
+
 # --------------------------------------------------------------------------- #
 # Preprocessing
 # --------------------------------------------------------------------------- #
@@ -111,6 +118,123 @@ def test_preprocessor_round_trips_through_config():
     pre = YOLOPreprocessor(image_size=64, input_range=(0, 255), normalize=False)
     clone = YOLOPreprocessor.from_config(pre.get_config())
     assert clone.input_range == (0, 255) and clone.normalize is False
+
+
+def test_preprocessor_letterbox_geometry_matches_reference():
+    """``ratio`` / ``pad`` reproduce Ultralytics' LetterBox for odd aspect ratios."""
+    for h, w in [(480, 640), (1080, 810), (333, 500), (427, 640), (721, 1281)]:
+        out = YOLOPreprocessor(image_size=640)(np.zeros((h, w, 3), "float32"))
+        # reference: r = min(new/h, new/w); dw/dh = (new - round(side * r)) / 2
+        r = min(640 / h, 640 / w)
+        dw = (640 - int(round(w * r))) / 2
+        dh = (640 - int(round(h * r))) / 2
+        np.testing.assert_allclose(_np(out["ratio"])[0], [r, r], rtol=1e-6)
+        np.testing.assert_allclose(_np(out["pad"])[0], [dw, dh], rtol=1e-6)
+        assert tuple(out["images"].shape) == (1, 640, 640, 3)
+
+
+def test_preprocessor_compute_output_shape():
+    """Declared statically so symbolic use never traces ``call``."""
+    pre = YOLOPreprocessor(image_size=64)
+    shapes = pre.compute_output_shape((None, 40, 50, 3))
+    assert shapes["images"] == (None, 64, 64, 3)
+    assert shapes["ratio"] == (None, 2) and shapes["pad"] == (None, 2)
+    # a single (H, W, C) image still comes back batched
+    assert pre.compute_output_shape((40, 50, 3))["images"] == (1, 64, 64, 3)
+    # channels_first swaps the layout
+    first = YOLOPreprocessor(image_size=64, data_format="channels_first")
+    assert first.compute_output_shape((None, 40, 50, 3))["images"] == (None, 3, 64, 64)
+    # auto padding is input-dependent, so the spatial dims are unknown
+    auto = YOLOPreprocessor(image_size=64, auto=True)
+    assert auto.compute_output_shape((None, 40, 50, 3))["images"] == (None, None, None, 3)
+
+
+def test_preprocessor_in_functional_model():
+    """The preprocessor can be attached symbolically and stay traceable.
+
+    ``ops.image.resize`` requires a static Python ``size``, so the letterbox
+    geometry must be computed from the static shape; deriving it from
+    ``ops.shape`` made the layer unusable in any graph.
+    """
+    inputs = keras.Input(shape=(40, 50, 3))
+    pre = YOLOPreprocessor(image_size=64)
+    model = keras.Model(inputs, pre(inputs)["images"])
+    assert tuple(model.output_shape) == (None, 64, 64, 3)
+    out = model(np.random.rand(2, 40, 50, 3).astype("float32"))
+    assert tuple(out.shape) == (2, 64, 64, 3)
+
+
+@requires_tensorflow
+def test_preprocessor_traceable_in_graph_mode():
+    """It survives ``tf.function`` (static and dynamic batch) and ``tf.data``."""
+    import tensorflow as tf
+
+    pre = YOLOPreprocessor(image_size=64)
+    image = np.random.rand(2, 40, 50, 3).astype("float32")
+
+    static = tf.function(
+        lambda x: pre(x), input_signature=[tf.TensorSpec([2, 40, 50, 3], tf.float32)]
+    )
+    np.testing.assert_allclose(_np(static(image)["images"]), _np(pre(image)["images"]), atol=1e-5)
+
+    # only the batch dimension may stay dynamic
+    dynamic = tf.function(
+        lambda x: pre(x), input_signature=[tf.TensorSpec([None, 40, 50, 3], tf.float32)]
+    )
+    for batch in (1, 4):
+        out = dynamic(np.random.rand(batch, 40, 50, 3).astype("float32"))
+        assert tuple(out["images"].shape) == (batch, 64, 64, 3)
+        assert tuple(out["ratio"].shape) == (batch, 2)
+
+    # and it works inside a tf.data pipeline
+    dataset = tf.data.Dataset.from_tensor_slices(np.random.rand(4, 40, 50, 3).astype("float32"))
+    dataset = dataset.map(lambda x: pre(x)["images"])
+    assert tuple(next(iter(dataset)).shape) == (1, 64, 64, 3)
+
+
+@requires_tensorflow
+def test_letterbox_rejects_unknown_spatial_dims():
+    """A dynamic H/W cannot work, so it must fail loudly rather than mid-graph."""
+    import tensorflow as tf
+
+    from kyolo.layers.letterbox import Letterbox
+
+    layer = Letterbox(64)
+    with pytest.raises(ValueError, match="statically-known spatial dimensions"):
+        tf.function(
+            lambda x: layer(x),
+            input_signature=[tf.TensorSpec([1, None, None, 3], tf.float32)],
+        ).get_concrete_function()
+
+
+@requires_tensorflow
+def test_end_to_end_pipeline_exports_to_saved_model():
+    """preprocess -> model -> postprocess exports and reloads.
+
+    This is the payoff for making the letterbox and NMS graph-safe: the whole
+    pipeline can now be captured in a SavedModel.
+    """
+    import tempfile
+
+    import tensorflow as tf
+
+    detector = yolov8n(nc=NC, input_shape=(64, 64, 3))
+    pre = YOLOPreprocessor(image_size=64)
+    post = YOLOPostprocessor(
+        nc=NC, reg_max=detector.reg_max, strides=detector.strides, max_detections=10
+    )
+    inputs = keras.Input(shape=(40, 50, 3))
+    full = keras.Model(inputs, post(detector(pre(inputs)["images"])))
+    assert tuple(full.output_shape) == (None, 10, 6)
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = f"{directory}/exported"
+        full.export(path)
+        # keep a reference: the loaded object owns the variables `serve` closes over
+        reloaded = tf.saved_model.load(path)
+        served = reloaded.serve(np.random.rand(1, 40, 50, 3).astype("float32"))
+        assert tuple(served.shape) == (1, 10, 6)
+        assert np.isfinite(_np(served)).all()
 
 
 # --------------------------------------------------------------------------- #
@@ -220,13 +344,6 @@ def test_batched_nms_handles_negative_coordinates_and_empty_images():
     got = out[0][out[0][:, 4] > 0]
     np.testing.assert_allclose(got[:, :4], boxes[0][keep], atol=1e-4)
     assert not out[1].any()
-
-
-requires_tensorflow = pytest.mark.skipif(
-    keras is None or keras.backend.backend() != "tensorflow",
-    reason="a dynamic (None) anchor count only arises in TensorFlow graph mode; "
-    "JAX and PyTorch always see static shapes",
-)
 
 
 @requires_tensorflow

@@ -157,6 +157,23 @@ class YOLOPreprocessor(keras.layers.Layer):
 
         return {"images": x, "ratio": ratio, "pad": pad}
 
+    def compute_output_shape(self, input_shape):
+        """Declared so symbolic / functional use never has to trace ``call``."""
+        # Inputs are accepted as (H, W, C) or (B, H, W, C); the output is always
+        # batched, so a single image becomes B=1.
+        batch = input_shape[0] if len(input_shape) == 4 else 1
+        if self.auto:
+            # Minimal-rectangle padding: the spatial size depends on the input's
+            # aspect ratio, so it is not a fixed square.
+            height = width = None
+        else:
+            height = width = self.image_size
+        if self.data_format == "channels_first":
+            images = (batch, 3, height, width)
+        else:
+            images = (batch, height, width, 3)
+        return {"images": images, "ratio": (batch, 2), "pad": (batch, 2)}
+
     def from_files(self, paths: Union[str, List[str]]):
         """Load image file(s) with keras and preprocess them."""
         if isinstance(paths, str):

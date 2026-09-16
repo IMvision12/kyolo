@@ -58,18 +58,33 @@ class Letterbox(keras.layers.Layer):
             inputs = ops.expand_dims(inputs, axis=0)
 
         batch = ops.shape(inputs)[0]
-        cur_h = ops.shape(inputs)[1]
-        cur_w = ops.shape(inputs)[2]
+        # ``ops.image.resize`` needs a *static* Python ``size``: it converts the
+        # value to a bool internally, so a backend tensor raises inside any
+        # graph. Deriving the spatial dims from ``ops.shape`` therefore made this
+        # layer untraceable -- it could not go inside a ``tf.function``, a
+        # ``tf.data.Dataset.map``, a Keras functional model, or anything exported
+        # via ``model.export()``, even with a fully static input signature. Read
+        # them off the static shape instead and keep every derived quantity a
+        # plain Python number. Only the batch dimension may stay dynamic.
+        cur_h, cur_w = inputs.shape[1], inputs.shape[2]
+        if cur_h is None or cur_w is None:
+            raise ValueError(
+                "Letterbox needs statically-known spatial dimensions because it "
+                f"resizes to a computed size, but got shape {tuple(inputs.shape)}. "
+                "Resize the images to a known size first, or build with a concrete "
+                "input shape. The batch dimension may stay dynamic."
+            )
 
         target_h, target_w = self.new_shape
-        r_h = ops.cast(target_h, "float32") / ops.cast(cur_h, "float32")
-        r_w = ops.cast(target_w, "float32") / ops.cast(cur_w, "float32")
-        r = ops.minimum(r_h, r_w)
+        # Python arithmetic throughout. ``round`` here is round-half-to-even,
+        # which is exactly what Ultralytics' ``LetterBox`` does (``int(round(...))``
+        # on Python floats), so the geometry stays bit-comparable with it.
+        r = min(target_h / cur_h, target_w / cur_w)
         if not self.scaleup:
-            r = ops.minimum(r, 1.0)
+            r = min(r, 1.0)
 
-        new_w = ops.cast(ops.round(ops.cast(cur_w, "float32") * r), "int32")
-        new_h = ops.cast(ops.round(ops.cast(cur_h, "float32") * r), "int32")
+        new_w = int(round(cur_w * r))
+        new_h = int(round(cur_h * r))
 
         dw = target_w - new_w
         dh = target_h - new_h
@@ -80,8 +95,8 @@ class Letterbox(keras.layers.Layer):
             dw, dh = 0, 0
             new_w, new_h = target_w, target_h
 
-        dw_half = ops.cast(dw, "float32") / 2.0
-        dh_half = ops.cast(dh, "float32") / 2.0
+        dw_half = dw / 2.0
+        dh_half = dh / 2.0
 
         # Letterbox always works on channels_last (H, W, C) tensors; pin the
         # resize data_format so it ignores a channels_first global Keras config.
@@ -93,19 +108,23 @@ class Letterbox(keras.layers.Layer):
             data_format="channels_last",
         )
 
-        top = ops.maximum(ops.cast(ops.round(dh_half - 0.1), "int32"), 0)
-        bottom = ops.maximum(ops.cast(ops.round(dh_half + 0.1), "int32"), 0)
-        left = ops.maximum(ops.cast(ops.round(dw_half - 0.1), "int32"), 0)
-        right = ops.maximum(ops.cast(ops.round(dw_half + 0.1), "int32"), 0)
+        top = max(int(round(dh_half - 0.1)), 0)
+        bottom = max(int(round(dh_half + 0.1)), 0)
+        left = max(int(round(dw_half - 0.1)), 0)
+        right = max(int(round(dw_half + 0.1)), 0)
 
-        paddings = ops.convert_to_tensor(
-            [[0, 0], [top, bottom], [left, right], [0, 0]], dtype="int32"
+        padded = ops.pad(
+            resized,
+            [[0, 0], [top, bottom], [left, right], [0, 0]],
+            mode="constant",
+            constant_values=0.0,
         )
-        padded = ops.pad(resized, paddings, mode="constant", constant_values=0.0)
         final = self._fill_border(padded, top, bottom, left, right)
 
-        ratio = ops.broadcast_to(ops.expand_dims(ops.stack([r, r], 0), 0), [batch, 2])
-        pad = ops.broadcast_to(ops.expand_dims(ops.stack([dw_half, dh_half], 0), 0), [batch, 2])
+        ratio = ops.broadcast_to(ops.convert_to_tensor([[r, r]], dtype="float32"), (batch, 2))
+        pad = ops.broadcast_to(
+            ops.convert_to_tensor([[dw_half, dh_half]], dtype="float32"), (batch, 2)
+        )
 
         if single:
             final = ops.squeeze(final, axis=0)
@@ -114,24 +133,22 @@ class Letterbox(keras.layers.Layer):
         return final, ratio, pad
 
     def _fill_border(self, padded, top, bottom, left, right):
-        b, h, w, c = (
-            ops.shape(padded)[0],
-            ops.shape(padded)[1],
-            ops.shape(padded)[2],
-            ops.shape(padded)[3],
-        )
+        # ``padded`` has static spatial dims (the resize target and the pad
+        # widths are Python ints), so build the mask from those and let
+        # ``ops.where`` broadcast over the dynamic batch and the channels rather
+        # than materialising a full-size mask with ``broadcast_to``.
+        h, w = padded.shape[1], padded.shape[2]
         ys = ops.arange(h, dtype="int32")
         xs = ops.arange(w, dtype="int32")
-        top_m = ops.expand_dims(ys < top, 1)
-        bot_m = ops.expand_dims(ys >= (h - bottom), 1)
-        left_m = ops.expand_dims(xs < left, 0)
-        right_m = ops.expand_dims(xs >= (w - right), 0)
+        top_m = ops.expand_dims(ys < top, 1)  # (h, 1)
+        bot_m = ops.expand_dims(ys >= (h - bottom), 1)  # (h, 1)
+        left_m = ops.expand_dims(xs < left, 0)  # (1, w)
+        right_m = ops.expand_dims(xs >= (w - right), 0)  # (1, w)
         border = ops.logical_or(
             ops.logical_or(top_m, bot_m), ops.logical_or(left_m, right_m)
         )  # (h, w)
-        border = ops.reshape(border, (1, h, w, 1))
-        border = ops.broadcast_to(border, [b, h, w, c])
-        color = ops.broadcast_to(ops.reshape(self.color_norm, [1, 1, 1, 3]), [b, h, w, 3])
+        border = ops.reshape(border, (1, h, w, 1))  # broadcasts over B and C
+        color = ops.reshape(self.color_norm, (1, 1, 1, 3))  # broadcasts over B, H, W
         return ops.where(border, color, padded)
 
     def compute_output_shape(self, input_shape):
