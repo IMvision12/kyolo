@@ -2,7 +2,7 @@
 
 This script wires together the full inference pipeline:
 
-    build model  ->  preprocess image  ->  forward pass  ->  postprocess  ->  draw
+    build model -> preprocess -> forward pass -> postprocess -> rescale -> draw
 
 Because the official YOLO checkpoints are AGPL-3.0 licensed they are **not**
 shipped with this project. Running this demo without a converted checkpoint uses
@@ -82,6 +82,7 @@ def main():
 
     import kyolo.models as models
     from kyolo.models import load_pretrained_weights
+    from kyolo.ops import scale_boxes
     from kyolo.postprocessing import YOLOPostprocessor
     from kyolo.preprocessing import YOLOPreprocessor
     from kyolo.utils import COCO_CLASS_NAMES, visualize_detections
@@ -141,18 +142,20 @@ def main():
     )
     detections = postprocessor(raw_feats)  # (B, max_detections, 6)
 
-    # Detections are in the letterboxed input space, so we draw them on the
-    # preprocessed image (also in that space). ``batch["ratio"]`` / ``["pad"]``
-    # can be used to map boxes back onto the original image if desired.
+    # Detections come out in the letterboxed input space, so undo the
+    # preprocessing with the ratio/pad it reported. Scores and class ids ride
+    # along untouched, and zero-padded rows stay zero.
+    detections = scale_boxes(detections, batch["ratio"], batch["pad"], orig_shape=image.shape[:2])
+
     det0 = keras.ops.convert_to_numpy(detections)[0]
-    img0 = keras.ops.convert_to_numpy(batch["images"])[0]
     num_kept = int((det0[:, 4] > 0).sum())
     print(f"Kept {num_kept} detection(s) above conf={args.conf}.")
 
     # -------------------------------------------------------------- visualize
+    # boxes are back in original-image pixels, so draw on the user's photo
     os.makedirs(os.path.dirname(_DEFAULT_OUTPUT), exist_ok=True)
     visualize_detections(
-        img0,
+        image,
         det0,
         class_names=COCO_CLASS_NAMES,
         score_threshold=args.conf,

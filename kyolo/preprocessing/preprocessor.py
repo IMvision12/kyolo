@@ -25,8 +25,19 @@ class YOLOPreprocessor(keras.layers.Layer):
         {"images": (B, S, S, 3), "ratio": (B, 2), "pad": (B, 2)}
 
     ``images`` is ``(B, S, S, 3)`` for channels_last or ``(B, 3, S, S)`` for
-    channels_first. ``ratio`` and ``pad`` let you map detections back to
-    original coordinates: ``x_orig = (x_letterboxed - pad_x) / ratio``.
+    channels_first. ``ratio`` and the applied ``(left, top)`` ``pad`` map
+    detections back to original coordinates -- ``x_orig = (x - pad_x) / ratio``
+    -- which is what :func:`kyolo.ops.scale_boxes` does::
+
+        batch = preprocessor(image)
+        detections = postprocessor(model(batch["images"]))
+        detections = scale_boxes(
+            detections, batch["ratio"], batch["pad"], image.shape[:2]
+        )
+
+    Note that ``ratio``/``pad`` only describe an invertible transform when
+    ``letterbox=True`` and ``scale_fill=False``; a plain resize
+    (``letterbox=False``) still reports an identity ratio.
 
     Args:
         image_size: square target side ``S``.
@@ -156,6 +167,23 @@ class YOLOPreprocessor(keras.layers.Layer):
             x = ops.transpose(x, (0, 3, 1, 2))  # (B,H,W,C) -> (B,C,H,W)
 
         return {"images": x, "ratio": ratio, "pad": pad}
+
+    def compute_output_shape(self, input_shape):
+        """Declared so symbolic / functional use never has to trace ``call``."""
+        # Inputs are accepted as (H, W, C) or (B, H, W, C); the output is always
+        # batched, so a single image becomes B=1.
+        batch = input_shape[0] if len(input_shape) == 4 else 1
+        if self.auto:
+            # Minimal-rectangle padding: the spatial size depends on the input's
+            # aspect ratio, so it is not a fixed square.
+            height = width = None
+        else:
+            height = width = self.image_size
+        if self.data_format == "channels_first":
+            images = (batch, 3, height, width)
+        else:
+            images = (batch, height, width, 3)
+        return {"images": images, "ratio": (batch, 2), "pad": (batch, 2)}
 
     def from_files(self, paths: Union[str, List[str]]):
         """Load image file(s) with keras and preprocess them."""

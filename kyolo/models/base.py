@@ -121,6 +121,7 @@ def finalize_detector(
         cls_dw=cls_dw,
         act=head_act,
         data_format=data_format,
+        strides=strides,
         name=head_name,
     )
     model = keras.Model(inputs=inputs, outputs=outputs, name=kname(name))
@@ -221,7 +222,9 @@ def load_pretrained_weights(model, weights, verbose=True):
     reinitialized = [
         l.name
         for l in cls_layers
-        if all(np.array_equal(a, ops.convert_to_numpy(b)) for a, b in zip(before[l.name], l.weights))
+        if all(
+            np.array_equal(a, ops.convert_to_numpy(b)) for a, b in zip(before[l.name], l.weights)
+        )
     ]
     if verbose:
         n_weighted = sum(1 for l in model.layers if l.weights)

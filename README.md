@@ -52,7 +52,8 @@ directly from `kyolo.models` (or `kyolo`):
 
 ```python
 from kyolo.models import yolov5n, yolov8m, yolo11s, yolov9c, yolov10n
-model = yolov8m(nc=80)          # -> keras.Model
+
+model = yolov8m(nc=80)  # -> keras.Model
 ```
 
 `kyolo.models.MODEL_NAMES` lists all 36 factories. Regardless of family, a
@@ -114,7 +115,8 @@ export KERAS_BACKEND=jax          # or "tensorflow" / "torch"
 
 ```python
 import os
-os.environ["KERAS_BACKEND"] = "jax"   # must be set before `import keras`
+
+os.environ["KERAS_BACKEND"] = "jax"  # must be set before `import keras`
 ```
 
 ## Quickstart: inference
@@ -122,7 +124,7 @@ os.environ["KERAS_BACKEND"] = "jax"   # must be set before `import keras`
 ```python
 import keras
 
-from kyolo.models import yolov8n            # every variant is a factory: yolov5l, yolo11m, ...
+from kyolo.models import yolov8n  # every variant is a factory: yolov5l, yolo11m, ...
 from kyolo.preprocessing import YOLOPreprocessor
 from kyolo.postprocessing import YOLOPostprocessor
 from kyolo.utils import visualize_detections, COCO_CLASS_NAMES
@@ -144,16 +146,19 @@ raw_feats = model(batch["images"])
 # 4. Postprocess -> (B, max_detections, 6) = [x1, y1, x2, y2, score, class_id].
 #    Read reg_max / end_to_end off the model so the same code works for every family.
 postprocessor = YOLOPostprocessor(
-    nc=80, reg_max=model.reg_max, strides=model.strides,
-    conf_threshold=0.25, iou_threshold=0.45, max_detections=300,
+    nc=80,
+    reg_max=model.reg_max,
+    strides=model.strides,
+    conf_threshold=0.25,
+    iou_threshold=0.45,
+    max_detections=300,
 )
 detections = postprocessor(raw_feats)
 
 # 5. Visualize the first image in the batch.
 image = keras.ops.convert_to_numpy(batch["images"])[0]
 dets = keras.ops.convert_to_numpy(detections)[0]
-visualize_detections(image, dets, class_names=COCO_CLASS_NAMES,
-                     save_path="result.png")
+visualize_detections(image, dets, class_names=COCO_CLASS_NAMES, save_path="result.png")
 ```
 
 A runnable version lives in [`examples/inference.py`](examples/inference.py):
@@ -235,7 +240,8 @@ Then load the result into the matching factory (Keras weights only):
 
 ```python
 from kyolo.models import yolov8n
-model = yolov8n(nc=80, weights="yolov8n.weights.h5")   # .weights.h5 / .keras only
+
+model = yolov8n(nc=80, weights="yolov8n.weights.h5")  # .weights.h5 / .keras only
 ```
 
 For scripting, the programmatic entry point is
@@ -257,7 +263,7 @@ import keras
 from kyolo.models import yolov8n
 
 keras.config.set_image_data_format("channels_first")
-model = yolov8n(nc=80, input_shape=(3, 640, 640))   # (C, H, W) inputs, (B, C, H, W) feats
+model = yolov8n(nc=80, input_shape=(3, 640, 640))  # (C, H, W) inputs, (B, C, H, W) feats
 
 # ...or override per call, ignoring the global setting:
 model = yolov8n(nc=80, input_shape=(640, 640, 3), data_format="channels_last")

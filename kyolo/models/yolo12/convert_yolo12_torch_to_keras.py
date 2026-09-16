@@ -26,10 +26,18 @@ def convert(
     output=None,
     method="name",
     verbose=True,
+    allow_partial=False,
 ):
     """Build a YOLO12 model and transfer weights from ``weights_path``."""
     model = build_yolo12(variant=variant, nc=nc, input_shape=(imgsz, imgsz, 3), deploy=True)
-    return convert_weights(model, weights_path, output_path=output, method=method, verbose=verbose)
+    return convert_weights(
+        model,
+        weights_path,
+        output_path=output,
+        method=method,
+        verbose=verbose,
+        allow_partial=allow_partial,
+    )
 
 
 def main():
@@ -42,6 +50,12 @@ def main():
     p.add_argument("--imgsz", type=int, default=640, help="Build image size")
     p.add_argument("--output", default=None, help="Output .weights.h5 path")
     p.add_argument("--method", default="name", choices=["order", "name"])
+    p.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="Save even if the transfer was incomplete (the checkpoint will be "
+        "part randomly initialized). Off by default.",
+    )
     args = p.parse_args()
     convert(
         args.weights,
@@ -50,6 +64,7 @@ def main():
         imgsz=args.imgsz,
         output=args.output,
         method=args.method,
+        allow_partial=args.allow_partial,
     )
 
 

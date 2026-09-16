@@ -8,22 +8,32 @@ NumPy arrays.
 
 Two transfer strategies are provided:
 
-``transfer_by_order`` (method ``"order"``, RECOMMENDED)
-    Walks the Keras variables and the Torch ``state_dict`` **in build order**
-    and zips them together positionally. Because the :mod:`kyolo` builders
-    create their sub-layers in the exact same order the PyTorch modules are
-    registered, this lines up without relying on fragile string matching. It
-    only needs the *counts* and *shapes* to agree, which it validates loudly.
-
-``transfer_torch_to_keras`` (method ``"name"``, best-effort)
+``transfer_torch_to_keras`` (method ``"name"``, the default -- use this)
     Derives a candidate Torch key for every Keras variable from its ``path``
     (e.g. ``model-0-conv/kernel`` -> ``model.0.conv.weight``) and looks it up
     directly. Keras layer names are hyphenated for torch-backend safety (see
     :mod:`kyolo.layers.knames`), so the separators are mapped back to ``.``.
-    This is convenient when the two graphs are structurally identical, but the
-    derived names can drift from a specific checkpoint's layout (the detection
-    head in particular), so it may need per-model mapping tuning. Prefer
-    ``"order"`` unless you have a reason not to.
+    The :mod:`kyolo` layer names mirror the reference module paths, so matching
+    is exact for the official checkpoints. Individual checkpoints (the detection
+    head in particular) can still diverge and need a per-model ``name_mapping``.
+
+``transfer_by_order`` (method ``"order"``, rarely usable)
+    Walks the Keras variables and the Torch ``state_dict`` positionally and zips
+    them together, needing only the counts and post-transpose shapes to agree.
+
+    **This does not work for any of the families kyolo ships**, because the two
+    build orders disagree inside every CSP block: kyolo emits ``cv1`` ->
+    ``m.{i}`` -> ``cv2`` while the reference ``C2f.__init__`` registers ``cv1``
+    -> ``cv2`` -> ``m.{i}``. Confirmed on a real ``yolov8n`` at ``model.2``::
+
+        kyolo:       cv1.conv, cv1.bn, m.0.cv1, m.0.cv2, cv2.conv, cv2.bn
+        ultralytics: cv1.conv, cv1.bn, cv2.conv, cv2.bn, m.0.cv1, m.0.cv2
+
+    Same pattern in ``c3`` and ``c3k2``, so it affects v5, v8, v10, 11, 12 and
+    26. It normally fails loudly on a shape mismatch, but a bottleneck's
+    ``cv1``/``cv2`` have identical shapes at equal channel counts, so a silent
+    swap is possible. Reach for it only when you have checked that the two
+    orders line up for your specific checkpoint.
 
 Layout conventions handled here
 -------------------------------
@@ -42,11 +52,17 @@ Layout conventions handled here
    model against the PyTorch reference on the same input and comparing outputs.
    Treat the reports returned here as a first, necessary check -- not proof of
    correctness.
+
+   What the reports *do* guarantee is completeness: :func:`convert_weights`
+   refuses to save unless every Keras variable was filled and every Torch tensor
+   was read, because a part-random checkpoint still loads cleanly and only shows
+   up as bad predictions much later.
 """
 
 from __future__ import annotations
 
 import os
+import warnings
 from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 
@@ -90,6 +106,21 @@ def _drop_non_transferable(torch_state: "Dict[str, np.ndarray]") -> "OrderedDict
         for k, v in torch_state.items()
         if not any(k.endswith(sfx) for sfx in _NON_TRANSFERABLE_SUFFIXES)
     )
+
+
+def _unclaimed_torch_keys(torch_state, claimed) -> List[str]:
+    """Torch tensors that no Keras variable took.
+
+    Without this a *partially* overlapping checkpoint is indistinguishable from a
+    correct one: counting only the Keras side cannot tell you that half the
+    checkpoint went unread. Buffers kyolo deliberately does not hold (the frozen
+    DFL projection) are not reported, since they are never claimed by design.
+    """
+    return [
+        key
+        for key in torch_state
+        if key not in claimed and not any(key.endswith(s) for s in _NON_TRANSFERABLE_SUFFIXES)
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -229,7 +260,7 @@ def _assign(var, arr: np.ndarray) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Order-based transfer (robust, recommended)
+# Order-based transfer (positional; does not fit the shipped families)
 # --------------------------------------------------------------------------- #
 def transfer_by_order(
     keras_model,
@@ -246,6 +277,14 @@ def transfer_by_order(
     variable's kind; only element counts and post-transpose shapes need to line
     up, both of which are validated.
 
+    .. warning::
+       *Within* a layer the grouping matches, but the layer order does not for
+       any family kyolo ships: the CSP builders emit ``cv1`` -> ``m.{i}`` ->
+       ``cv2`` where the reference registers ``cv1`` -> ``cv2`` -> ``m.{i}``.
+       Use :func:`transfer_torch_to_keras` (``method="name"``) instead unless you
+       have verified the orders agree for your checkpoint. See the module
+       docstring.
+
     Args:
         keras_model: The target Keras model (already built).
         torch_state: Ordered ``name -> ndarray`` mapping from
@@ -255,7 +294,8 @@ def transfer_by_order(
             mismatches are skipped and counted instead.
 
     Returns:
-        ``{"transferred": int, "skipped": int, "total": int}``.
+        ``{"transferred", "skipped", "total", "misses", "unclaimed"}`` -- see
+        :func:`transfer_torch_to_keras` for the shape of the last two.
 
     Raises:
         ValueError: If the number of Keras variables and Torch tensors differ,
@@ -274,31 +314,39 @@ def transfer_by_order(
         )
 
     transferred = 0
-    skipped = 0
+    misses: List[Tuple[str, str, str]] = []
+    claimed = set()
     for idx, ((var, kind), (tk, arr)) in enumerate(zip(keras_vars, torch_items)):
         converted = _transpose_for_kind(arr, kind)
         if tuple(converted.shape) != tuple(var.shape):
-            message = (
-                f"[{idx}] shape mismatch: Keras '{var.path}' expects "
-                f"{tuple(var.shape)} (kind={kind}) but Torch '{tk}' is "
-                f"{tuple(arr.shape)} -> {tuple(converted.shape)} after transpose."
+            reason = (
+                f"shape mismatch: Keras expects {tuple(var.shape)} (kind={kind}) "
+                f"but Torch is {tuple(arr.shape)} -> {tuple(converted.shape)} after transpose"
             )
             if strict_shapes:
-                raise ValueError(message)
+                raise ValueError(f"[{idx}] {reason.replace('Keras', f'Keras {var.path!r}')}.")
             if verbose:
-                print(f"  skip: {message}")
-            skipped += 1
+                print(f"  skip: [{idx}] {var.path} <- {tk} ({reason})")
+            misses.append((var.path, tk, reason))
             continue
         _assign(var, converted)
+        claimed.add(tk)
         transferred += 1
 
     total = len(keras_vars)
+    unclaimed = _unclaimed_torch_keys(torch_state, claimed)
     if verbose:
         print(
             f"[order] transferred {transferred}/{total} variables"
-            + (f" ({skipped} skipped)" if skipped else "")
+            + (f" ({len(misses)} skipped)" if misses else "")
         )
-    return {"transferred": transferred, "skipped": skipped, "total": total}
+    return {
+        "transferred": transferred,
+        "skipped": len(misses),
+        "total": total,
+        "misses": misses,
+        "unclaimed": unclaimed,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -322,10 +370,12 @@ def transfer_torch_to_keras(
     resulting key exists in ``torch_state`` the value is transposed to the Keras
     layout and assigned; otherwise the variable is recorded as a miss.
 
-    This path is best-effort. The dotted :mod:`kyolo` naming mirrors the
-    reference modules, but individual checkpoints (especially detection heads)
-    can diverge and need a per-model ``name_mapping``. When in doubt use
-    :func:`transfer_by_order`.
+    This is the recommended path. The dotted :mod:`kyolo` naming mirrors the
+    reference modules, so matching is exact for the official checkpoints, but
+    individual checkpoints (especially detection heads) can diverge and need a
+    per-model ``name_mapping``. :func:`transfer_by_order` is *not* the fallback
+    to reach for: the build orders disagree inside every CSP block (see the
+    module docstring).
 
     Args:
         keras_model: The target Keras model (already built).
@@ -337,14 +387,17 @@ def transfer_torch_to_keras(
         strict: Raise on the first miss / shape mismatch instead of recording it.
 
     Returns:
-        ``{"transferred", "skipped", "total", "misses"}`` where ``misses`` is a
-        list of ``(keras_path, torch_key, reason)`` tuples.
+        ``{"transferred", "skipped", "total", "misses", "unclaimed"}`` where
+        ``misses`` is a list of ``(keras_path, torch_key, reason)`` tuples for
+        Keras variables that were not filled, and ``unclaimed`` lists Torch keys
+        that no Keras variable took (excluding buffers kyolo never holds).
     """
     if name_mapping is None:
         name_mapping = DEFAULT_MAPPING
 
     transferred = 0
     misses: List[Tuple[str, str, str]] = []
+    claimed = set()
     total = 0
 
     for var in keras_model.weights:
@@ -366,8 +419,8 @@ def transfer_torch_to_keras(
             if strict:
                 raise KeyError(
                     f"No Torch parameter matched Keras variable '{path}' "
-                    f"(tried '{torch_key}'). Adjust the name_mapping or use "
-                    "method='order'."
+                    f"(tried '{torch_key}'). Adjust the name_mapping to suit "
+                    "the checkpoint's layout."
                 )
             misses.append((path, torch_key, "missing"))
             continue
@@ -382,26 +435,97 @@ def transfer_torch_to_keras(
             continue
 
         _assign(var, converted)
+        claimed.add(torch_key)
         transferred += 1
 
+    unclaimed = _unclaimed_torch_keys(torch_state, claimed)
     if verbose:
         print(f"[name] transferred {transferred}/{total} variables ({len(misses)} misses)")
         for path, torch_key, reason in misses[:10]:
             print(f"  miss: {path} <- {torch_key} ({reason})")
         if len(misses) > 10:
             print(f"  ... and {len(misses) - 10} more")
+        if unclaimed:
+            print(f"  {len(unclaimed)} Torch tensor(s) were never claimed, e.g.:")
+            for key in unclaimed[:10]:
+                print(f"    unused: {key}")
+            if len(unclaimed) > 10:
+                print(f"    ... and {len(unclaimed) - 10} more")
 
     return {
         "transferred": transferred,
         "skipped": len(misses),
         "total": total,
         "misses": misses,
+        "unclaimed": unclaimed,
     }
 
 
 # --------------------------------------------------------------------------- #
 # High-level driver
 # --------------------------------------------------------------------------- #
+def _sample(items, render, limit=10):
+    """Render up to ``limit`` items as indented lines, noting how many remain."""
+    lines = [f"    {render(item)}" for item in items[:limit]]
+    if len(items) > limit:
+        lines.append(f"    ... and {len(items) - limit} more")
+    return lines
+
+
+def _incomplete_transfer_error(report, method) -> Optional[str]:
+    """Describe an incomplete transfer, or return ``None`` if it was complete.
+
+    Both directions matter. Unfilled Keras variables keep their random
+    initialisation, and unread Torch tensors mean part of the checkpoint silently
+    did not apply -- neither is visible from the transferred count alone.
+    """
+    total = report["total"]
+    transferred = report["transferred"]
+    misses = report.get("misses", [])
+    unclaimed = report.get("unclaimed", [])
+    if not misses and not unclaimed:
+        return None
+
+    if transferred == 0:
+        lines = [
+            f"Weight conversion matched nothing: 0 of {total} Keras variables were "
+            f"filled with method={method!r}, so the model is still entirely randomly "
+            "initialised. Saving this checkpoint would produce a file that loads "
+            "cleanly and predicts noise."
+        ]
+    else:
+        lines = [
+            f"Weight conversion was incomplete with method={method!r}: "
+            f"{transferred} of {total} Keras variables were filled."
+        ]
+
+    if misses:
+        lines.append("")
+        lines.append(f"{len(misses)} Keras variable(s) kept their random initialisation:")
+        lines += _sample(misses, lambda m: f"{m[0]} <- {m[1]} ({m[2]})")
+    if unclaimed:
+        lines.append("")
+        lines.append(f"{len(unclaimed)} Torch tensor(s) in the checkpoint were never used:")
+        lines += _sample(unclaimed, str)
+
+    lines.append("")
+    lines.append(
+        "This usually means the checkpoint does not correspond to the model that "
+        "was built: wrong family or variant, wrong `nc`, a deploy/train mismatch, "
+        "or a `name_mapping` that no longer fits the checkpoint's layout."
+    )
+    lines.append(
+        "To fine-tune on a different class count, convert with the checkpoint's own "
+        "`nc` and then load with `kyolo.models.load_pretrained_weights`, which is "
+        "built to re-initialise just the classification branch."
+    )
+    lines.append(
+        "If a partial transfer really is what you want (e.g. while bringing up a new "
+        "family), pass `allow_partial=True` to downgrade this error to a warning."
+    )
+    return "\n".join(lines)
+
+
 def convert_weights(
     model,
     torch_weights_path: str,
@@ -409,8 +533,15 @@ def convert_weights(
     method: str = "name",
     name_mapping: Optional[Dict[str, str]] = None,
     verbose: bool = True,
+    allow_partial: bool = False,
 ) -> Dict[str, object]:
     """Load a ``.pt`` file, transfer it into ``model`` and save ``.weights.h5``.
+
+    An incomplete transfer raises **before** anything is written, so a
+    partially-converted checkpoint never reaches disk. Both directions are
+    checked: Keras variables no Torch tensor filled (they would keep their random
+    initialisation) and Torch tensors no Keras variable claimed (part of the
+    checkpoint silently did not apply).
 
     Args:
         model: A built Keras model to receive the weights.
@@ -426,9 +557,17 @@ def convert_weights(
             while Ultralytics registers ``cv1, cv2, m...``), so prefer ``"name"``.
         name_mapping: Optional substring mapping for the ``"name"`` method.
         verbose: Print progress and a final summary.
+        allow_partial: Downgrade an incomplete transfer from an error to a
+            warning and save anyway. Only useful while bringing up a new family;
+            the resulting checkpoint is part random.
 
     Returns:
-        The transfer report from the chosen method.
+        The transfer report from the chosen method, with ``"misses"`` and
+        ``"unclaimed"`` describing anything that did not line up.
+
+    Raises:
+        ValueError: If the transfer was incomplete and ``allow_partial`` is
+            ``False``, or if ``method`` is unknown.
     """
     torch_state = load_torch_state_dict(torch_weights_path)
 
@@ -440,6 +579,18 @@ def convert_weights(
         )
     else:
         raise ValueError(f"Unknown method {method!r}; expected 'order' or 'name'.")
+
+    # Gate the save: a checkpoint full of random initialisation loads without
+    # complaint later, so this is the last place the mismatch can be caught.
+    problem = _incomplete_transfer_error(report, method)
+    if problem is not None:
+        if not allow_partial:
+            raise ValueError(f"{problem}\n\nSource checkpoint: {torch_weights_path!r}")
+        warnings.warn(
+            f"Saving a partially-converted checkpoint (allow_partial=True).\n{problem}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     if output_path is not False:
         if output_path is None:

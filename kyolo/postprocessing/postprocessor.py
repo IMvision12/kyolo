@@ -44,7 +44,7 @@ class YOLOPostprocessor(keras.layers.Layer):
         max_detections=300,
         end_to_end=False,
         data_format=None,
-        pre_nms_topk=1000,
+        pre_nms_topk=30000,
         **kwargs,
     ):
         super().__init__(**kwargs)

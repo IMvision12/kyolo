@@ -12,6 +12,8 @@ __all__ = [
     "box_area",
     "bbox_iou",
     "pairwise_iou",
+    "clip_boxes",
+    "scale_boxes",
 ]
 
 
@@ -31,6 +33,112 @@ def xyxy2xywh(boxes):
     cxcy = (x1y1 + x2y2) / 2.0
     wh = x2y2 - x1y1
     return ops.concatenate([cxcy, wh], axis=-1)
+
+
+def _split_box_columns(boxes):
+    """Split ``(..., 4+)`` into the xyxy block and any trailing passthrough columns.
+
+    Letting callers keep extra columns means a ``(B, N, 6)``
+    ``[x1, y1, x2, y2, score, class]`` tensor straight out of
+    ``YOLOPostprocessor`` can be fed in without being taken apart first.
+    """
+    boxes = ops.convert_to_tensor(boxes, dtype="float32")
+    columns = boxes.shape[-1]
+    if columns is None:
+        raise ValueError(
+            "the last axis of `boxes` must be statically known (4 for plain xyxy, "
+            "or 6 for a detection tensor); got a dynamic last axis."
+        )
+    if columns < 4:
+        raise ValueError(f"`boxes` needs at least 4 columns (x1, y1, x2, y2); got {columns}.")
+    return boxes[..., :4], boxes[..., 4:] if columns > 4 else None
+
+
+def _align_pair(values, rank, name):
+    """Reshape a ``(2,)`` or ``(B, 2)`` parameter to broadcast over rank-``rank`` boxes."""
+    values = ops.convert_to_tensor(values, dtype="float32")
+    ndim = len(values.shape)
+    if ndim == 1:
+        # shared by every box: (2,) -> (1, ..., 1, 2)
+        return ops.reshape(values, (1,) * (rank - 1) + (2,))
+    if ndim != 2:
+        raise ValueError(f"`{name}` must have shape (2,) or (B, 2); got {tuple(values.shape)}.")
+    if rank < 3:
+        raise ValueError(
+            f"a per-image `{name}` of shape {tuple(values.shape)} needs batched boxes "
+            f"shaped (B, N, 4+), but `boxes` has rank {rank}."
+        )
+    # one value per image: (B, 2) -> (B, 1, ..., 1, 2)
+    return ops.reshape(values, (-1,) + (1,) * (rank - 2) + (2,))
+
+
+def clip_boxes(boxes, shape):
+    """Clip xyxy boxes so they lie inside an image.
+
+    Args:
+        boxes: ``(..., 4+)`` xyxy boxes. Columns past the first four (e.g. score
+            and class) are passed through untouched.
+        shape: image ``(height, width)``, or a ``(B, 2)`` batch of them when
+            every image in the batch has its own size.
+
+    Returns:
+        A tensor shaped like ``boxes``.
+    """
+    xyxy, extra = _split_box_columns(boxes)
+    hw = _align_pair(shape, len(xyxy.shape), "shape")
+    height, width = hw[..., :1], hw[..., 1:]
+    upper = ops.concatenate([width, height, width, height], axis=-1)
+    # maximum/minimum instead of ops.clip: a *tensor* bound is not portable there
+    xyxy = ops.minimum(ops.maximum(xyxy, 0.0), upper)
+    return xyxy if extra is None else ops.concatenate([xyxy, extra], axis=-1)
+
+
+def scale_boxes(boxes, ratio, pad, orig_shape=None, clip=True):
+    """Map boxes from letterboxed model space back to original image pixels.
+
+    This is the inverse of the ``YOLOPreprocessor`` / ``Letterbox`` transform,
+    ``x_orig = (x_letterboxed - pad_x) / ratio_x``, so it takes the ``ratio`` and
+    ``pad`` that the preprocessor returned alongside the image::
+
+        batch = preprocessor(image)
+        detections = postprocessor(model(batch["images"]))
+        detections = scale_boxes(
+            detections, batch["ratio"], batch["pad"], image.shape[:2]
+        )
+
+    Padding is removed before dividing by the ratio, matching Ultralytics'
+    ``scale_boxes``. Rows that ``YOLOPostprocessor`` zero-padded stay all-zero
+    when ``clip`` is ``True``, so the usual ``score > threshold`` filter keeps
+    working afterwards.
+
+    Args:
+        boxes: ``(..., 4+)`` xyxy boxes in letterboxed coordinates. Columns past
+            the first four are passed through, so a ``(B, N, 6)``
+            ``[x1, y1, x2, y2, score, class]`` detection tensor works directly.
+        ratio: ``(2,)`` or ``(B, 2)`` resize ratio ``(ratio_x, ratio_y)``.
+        pad: ``(2,)`` or ``(B, 2)`` padding ``(pad_x, pad_y)`` in pixels, i.e. the
+            padding added to the left and top, as returned by ``Letterbox``.
+        orig_shape: original image ``(height, width)``, or a ``(B, 2)`` batch of
+            them. Required when ``clip`` is ``True``.
+        clip: clip the result to the original image bounds.
+
+    Returns:
+        A tensor shaped like ``boxes``, in original-image pixel coordinates.
+    """
+    xyxy, extra = _split_box_columns(boxes)
+    rank = len(xyxy.shape)
+    gain = _align_pair(ratio, rank, "ratio")
+    offset = _align_pair(pad, rank, "pad")
+    # the x and y factors are kept separate so a non-aspect-preserving resize
+    # (scale_fill) inverts correctly too
+    xyxy = (xyxy - ops.concatenate([offset, offset], axis=-1)) / ops.concatenate(
+        [gain, gain], axis=-1
+    )
+    if clip:
+        if orig_shape is None:
+            raise ValueError("`orig_shape` is required when `clip=True`.")
+        xyxy = clip_boxes(xyxy, orig_shape)
+    return xyxy if extra is None else ops.concatenate([xyxy, extra], axis=-1)
 
 
 def box_area(boxes):

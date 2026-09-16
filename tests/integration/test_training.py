@@ -172,10 +172,12 @@ def test_load_pretrained_weights_with_different_nc(tmp_path):
         got = ops.convert_to_numpy(target.get_layer(name).weights[0])
         want = ops.convert_to_numpy(source.get_layer(name).weights[0])
         np.testing.assert_allclose(got, want)
-    # ... while the class branch kept its (deterministic) init: the class
-    # output conv bias is the prior -log((1 - 0.01) / 0.01).
-    bias = ops.convert_to_numpy(target.get_layer(f"{target.head_prefix}-cv3-0-2").bias)
-    np.testing.assert_allclose(bias, -np.log(99.0), rtol=1e-5)
+    # ... while the class branch kept its (deterministic) init: Ultralytics'
+    # bias_init prior log(5 / nc / (640 / stride) ** 2), which is
+    # stride-dependent, so each level carries its own value.
+    for i, stride in enumerate(target.strides):
+        bias = ops.convert_to_numpy(target.get_layer(f"{target.head_prefix}-cv3-{i}-2").bias)
+        np.testing.assert_allclose(bias, np.log(5.0 / NC / (640.0 / stride) ** 2), rtol=1e-5)
     # the fresh model still trains
     detector = YOLODetector(target)
     detector.compile(optimizer=keras.optimizers.Adam(1e-3))
@@ -227,3 +229,79 @@ def test_yolo26_detector_trains_and_detects():
     detector.fit(_generator(), epochs=1, steps_per_epoch=1, verbose=0)
     images, _ = _synthetic_batch(np.random.default_rng(2))
     assert tuple(detector.detect(images).shape) == (BATCH, 300, 6)
+
+
+@pytest.mark.parametrize("factory,reg_max", [(yolov8n, 16), (yolo26n, 1)])
+def test_head_bias_init_matches_reference(factory, reg_max):
+    """The head reproduces Ultralytics' ``Detect.bias_init``."""
+    model = factory(nc=NC, input_shape=(SIZE, SIZE, 3))
+    assert model.reg_max == reg_max
+    for i, stride in enumerate(model.strides):
+        box_bias = ops.convert_to_numpy(model.get_layer(f"{model.head_prefix}-cv2-{i}-2").bias)
+        cls_bias = ops.convert_to_numpy(model.get_layer(f"{model.head_prefix}-cv3-{i}-2").bias)
+        # box branch: a[-1].bias = 1.0
+        np.testing.assert_allclose(box_bias, 1.0, rtol=1e-6)
+        # class branch: b[-1].bias = log(5 / nc / (640 / stride) ** 2)
+        np.testing.assert_allclose(cls_bias, np.log(5.0 / NC / (640.0 / stride) ** 2), rtol=1e-5)
+    # The class prior must be far below a flat p=0.01, otherwise the initial BCE
+    # term (summed over B * A * nc mostly-negative entries) dwarfs box and DFL.
+    first = ops.convert_to_numpy(model.get_layer(f"{model.head_prefix}-cv3-0-2").bias)
+    assert float(first[0]) < -np.log(99.0)
+
+
+def test_dfl_free_head_predicts_non_degenerate_boxes():
+    """Regression guard: a zero box bias makes reg_max=1 heads untrainable.
+
+    With ``reg_max == 1`` there is no DFL softmax -- the four box channels *are*
+    the predicted distances -- so a zero output bias yields zero-area boxes, an
+    exactly-zero IoU, an exactly-zero ``iou ** beta`` alignment metric, no
+    weighted positives, and therefore zero box/DFL gradient forever.
+    """
+    model = yolo26n(nc=NC, input_shape=(SIZE, SIZE, 3))
+    loss = YOLODetectionLoss(nc=NC, reg_max=1, strides=model.strides)
+    assert loss.use_dfl is False
+
+    rng = np.random.default_rng(0)
+    images, targets = _synthetic_batch(rng)
+    feats = model(ops.convert_to_tensor(images))
+
+    # decode the raw distances the same way the loss does
+    flat, shapes = [], []
+    for f in feats:
+        h, w = f.shape[1], f.shape[2]
+        shapes.append((h, w))
+        flat.append(ops.reshape(f, (BATCH, h * w, loss.no)))
+    raw = ops.concatenate(flat, axis=1)
+    anchors, stride_t = make_anchors(shapes, model.strides)
+    boxes = dist2bbox(
+        raw[..., : loss.no - NC],
+        ops.expand_dims(ops.cast(anchors, "float32"), 0),
+        xywh=False,
+        axis=-1,
+    )
+    b = ops.convert_to_numpy(boxes)
+    areas = np.maximum(b[..., 2] - b[..., 0], 0.0) * np.maximum(b[..., 3] - b[..., 1], 0.0)
+    assert areas.mean() > 0.0, "reg_max=1 head predicts degenerate zero-area boxes"
+
+    # ... and the localization terms must therefore be non-zero
+    out = loss.compute(feats, targets)
+    assert float(ops.convert_to_numpy(out["box"])) > 0.0
+
+
+def test_loss_runs_under_mixed_precision():
+    """The loss computes in float32 even when the head emits float16."""
+    original = keras.mixed_precision.global_policy()
+    try:
+        keras.mixed_precision.set_global_policy("mixed_float16")
+        model = yolov8n(nc=NC, input_shape=(SIZE, SIZE, 3))
+        loss = YOLODetectionLoss(nc=NC, reg_max=16, strides=model.strides)
+        images, targets = _synthetic_batch(np.random.default_rng(0))
+        feats = model(ops.convert_to_tensor(images))
+        assert keras.backend.standardize_dtype(feats[0].dtype) == "float16"
+        out = loss.compute(feats, targets)
+        for key in ("loss", "box", "cls", "dfl"):
+            value = ops.convert_to_numpy(out[key])
+            assert keras.backend.standardize_dtype(out[key].dtype) == "float32"
+            assert np.isfinite(value).all(), f"{key} is not finite under mixed_float16"
+    finally:
+        keras.mixed_precision.set_global_policy(original)
